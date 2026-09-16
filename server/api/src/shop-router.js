@@ -22,7 +22,7 @@ export async function resolveShopByHost(pool, rawHost) {
   const hostname = normalizeHost(rawHost);
   if (!hostname || RESERVED_HOSTS.has(hostname)) return null;
 
-  const result = await pool.query(
+  const explicit = await pool.query(
     `
       SELECT
         m.id,
@@ -49,7 +49,38 @@ export async function resolveShopByHost(pool, rawHost) {
     [hostname]
   );
 
-  return result.rows[0] ?? null;
+  if (explicit.rows[0]) return explicit.rows[0];
+
+  // ZorqemiShop addresses are derived from the merchant slug as well,
+  // so a merchant does not need a separate DNS-row record for its own subdomain.
+  const suffix = '.zorqemishop.de';
+  if (!hostname.endsWith(suffix)) return null;
+  const shopSlug = hostname.slice(0, -suffix.length);
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(shopSlug)) return null;
+
+  const derived = await pool.query(
+    `
+      SELECT
+        m.id,
+        m.name,
+        m.slug,
+        m.shop_slug,
+        m.email,
+        m.published,
+        $1::text AS hostname,
+        'zorqemishop'::text AS domain_type,
+        true AS is_primary,
+        true AS is_verified,
+        'active'::text AS ssl_status
+      FROM merchants m
+      WHERE lower(m.shop_slug) = $2
+        AND m.published = true
+      LIMIT 1
+    `,
+    [hostname, shopSlug]
+  );
+
+  return derived.rows[0] ?? null;
 }
 
 export async function getPublicShop(pool, merchantId) {
