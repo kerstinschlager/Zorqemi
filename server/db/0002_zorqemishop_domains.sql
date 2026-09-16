@@ -4,6 +4,13 @@
 ALTER TABLE merchants
   ADD COLUMN IF NOT EXISTS shop_slug text;
 
+-- Keep existing merchant URLs usable during the migration from the current database.
+UPDATE merchants
+SET shop_slug = lower(trim(slug))
+WHERE (shop_slug IS NULL OR trim(shop_slug) = '')
+  AND slug IS NOT NULL
+  AND trim(slug) <> '';
+
 CREATE UNIQUE INDEX IF NOT EXISTS merchants_shop_slug_uidx
   ON merchants (lower(shop_slug))
   WHERE shop_slug IS NOT NULL;
