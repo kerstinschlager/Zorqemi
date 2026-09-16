@@ -82,4 +82,11 @@
   }
 
   window.addEventListener('load', () => setTimeout(bootstrap, 250));
+  window.addEventListener('load', () => setTimeout(() => {
+    if (document.querySelector('#zqPerformance')) return;
+    const script = document.createElement('script');
+    script.src = './zq-performance.js?v=20260916-1';
+    script.async = true;
+    document.head.appendChild(script);
+  }, 500));
 })();
