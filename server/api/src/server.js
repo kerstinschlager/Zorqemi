@@ -1,6 +1,7 @@
 import express from 'express';
 import pg from 'pg';
 import { migrate } from './migrate.js';
+import { resolveShopByHost, getPublicShop } from './shop-router.js';
 
 const { Pool } = pg;
 const app = express();
@@ -39,6 +40,27 @@ app.get('/api/v1/status', async (_req, res) => {
   } catch (error) {
     console.error('status database error', error);
     res.status(503).json({ ok: false, version: '0.1.0', migration: 'database-unavailable' });
+  }
+});
+
+// Public storefront resolution. The Host header selects the published merchant shop.
+app.get('/api/v1/shop', async (req, res, next) => {
+  try {
+    const shop = await resolveShopByHost(pool, req.get('host'));
+    if (!shop) return res.status(404).json({ ok: false, error: 'shop_not_found' });
+    return res.json({ ok: true, shop });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get('/api/v1/shop/:merchantId', async (req, res, next) => {
+  try {
+    const shop = await getPublicShop(pool, req.params.merchantId);
+    if (!shop) return res.status(404).json({ ok: false, error: 'shop_not_found' });
+    return res.json({ ok: true, shop });
+  } catch (error) {
+    return next(error);
   }
 });
 
