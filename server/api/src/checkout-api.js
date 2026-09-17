@@ -79,6 +79,14 @@ export async function createCheckoutSession(pool, body) {
   );
   const checkoutId = String(checkout.rows[0].id);
 
+  await pool.query(
+    `INSERT INTO checkout_items
+      (checkout_session_id, product_id, merchant_id, product_name, quantity, unit_price, total)
+     VALUES ${normalized.map((_, index) => `($1, $${index * 5 + 2}, $${index * 5 + 3}, $${index * 5 + 4}, $${index * 5 + 5}, $${index * 5 + 6}, $${index * 5 + 7})`).join(', ')}`,
+    normalized.flatMap(({ product, quantity }) => [product.id, product.merchant_id, product.name, quantity, product.price, Number(product.price) * quantity])
+      .reduce((params, value, index) => index === 0 ? [checkoutId, value] : [...params, value], [])
+  );
+
   try {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -100,10 +108,7 @@ export async function createCheckoutSession(pool, body) {
       metadata: { zorqemi_checkout_id: checkoutId }
     });
 
-    await pool.query(
-      `UPDATE checkout_sessions SET payment_reference = $1, updated_at = now() WHERE id = $2`,
-      [session.id, checkoutId]
-    );
+    await pool.query(`UPDATE checkout_sessions SET payment_reference = $1, updated_at = now() WHERE id = $2`, [session.id, checkoutId]);
     return { id: checkoutId, url: session.url, stripe_session_id: session.id, total, currency: settings.currency || 'EUR' };
   } catch (error) {
     await pool.query(`UPDATE checkout_sessions SET status = 'cancelled', updated_at = now() WHERE id = $1`, [checkoutId]);
@@ -135,12 +140,46 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
   if (!checkoutId) return { received: true };
 
   if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
-    await pool.query(
-      `UPDATE checkout_sessions SET status = 'paid', payment_provider = 'stripe', payment_reference = $1, updated_at = now() WHERE id = $2`,
-      [session.id, checkoutId]
-    );
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const checkout = await client.query(`SELECT * FROM checkout_sessions WHERE id = $1 FOR UPDATE`, [checkoutId]);
+      if (!checkout.rowCount) { await client.query('ROLLBACK'); return { received: true }; }
+      if (checkout.rows[0].status === 'paid') { await client.query('COMMIT'); return { received: true, already_paid: true }; }
+
+      const items = await client.query(`SELECT * FROM checkout_items WHERE checkout_session_id = $1 ORDER BY created_at`, [checkoutId]);
+      if (!items.rowCount) throw new Error('checkout_items_missing');
+
+      const order = await client.query(
+        `INSERT INTO orders
+          (merchant_id, customer_id, status, currency, subtotal, shipping_total, tax_total, total, shipping_address, payment_provider, payment_reference)
+         VALUES ($1, NULL, 'paid', $2, $3, $4, $5, $6, $7, 'stripe', $8)
+         RETURNING id`,
+        [checkout.rows[0].merchant_id, checkout.rows[0].currency, checkout.rows[0].subtotal, checkout.rows[0].shipping_total, checkout.rows[0].tax_total, checkout.rows[0].total, checkout.rows[0].shipping_address, session.id]
+      );
+      for (const item of items.rows) {
+        await client.query(
+          `INSERT INTO order_items(order_id, product_id, merchant_id, product_name, quantity, unit_price, total)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [order.rows[0].id, item.product_id, item.merchant_id, item.product_name, item.quantity, item.unit_price, item.total]
+        );
+      }
+      await client.query(
+        `UPDATE products p SET stock = p.stock - x.quantity, updated_at = now()
+           FROM (SELECT product_id, SUM(quantity)::integer quantity FROM checkout_items WHERE checkout_session_id = $1 GROUP BY product_id) x
+          WHERE p.id = x.product_id AND p.stock >= x.quantity`,
+        [checkoutId]
+      );
+      await client.query(`UPDATE checkout_sessions SET status = 'paid', payment_provider = 'stripe', payment_reference = $1, updated_at = now() WHERE id = $2`, [session.id, checkoutId]);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   } else if (event.type === 'checkout.session.async_payment_failed' || event.type === 'checkout.session.expired') {
-    await pool.query(`UPDATE checkout_sessions SET status = 'cancelled', updated_at = now() WHERE id = $1`, [checkoutId]);
+    await pool.query(`UPDATE checkout_sessions SET status = 'cancelled', updated_at = now() WHERE id = $1 AND status <> 'paid'`, [checkoutId]);
   }
 
   return { received: true };
