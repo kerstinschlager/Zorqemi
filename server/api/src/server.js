@@ -4,6 +4,7 @@ import { migrate } from './migrate.js';
 import { resolveShopByHost, getPublicShop } from './shop-router.js';
 import { getMerchantForOwner, listMerchantProducts, createMerchantProduct, updateMerchantProduct, getMerchantOrders, updateMerchantOrder, getShopSettings, updateShopSettings } from './merchant-api.js';
 import { getMerchantFromRequest, loginMerchant, registerMerchant, logoutMerchant, setMerchantSessionCookie, validatePassword } from './auth.js';
+import { createCheckoutSession, handleStripeWebhook } from './checkout-api.js';
 
 const { Pool } = pg;
 const app = express();
@@ -11,10 +12,22 @@ const port = Number(process.env.PORT || 3000);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: Number(process.env.DB_POOL_MAX || 10), idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 });
 app.locals.pool = pool;
 app.disable('x-powered-by');
+
+// Stripe requires the exact raw request body for webhook signature verification.
+app.post('/api/v1/payments/stripe/webhook', express.raw({ type: 'application/json', limit: '2mb' }), async (req, res) => {
+  try {
+    const result = await handleStripeWebhook(pool, req.body, req.get('stripe-signature'));
+    res.json(result);
+  } catch (error) {
+    const status = Number(error?.status) || (error?.type === 'StripeSignatureVerificationError' ? 400 : 500);
+    res.status(status).json({ ok: false, error: status < 500 ? (error.message || 'invalid_webhook') : 'internal_server_error' });
+  }
+});
+
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/healthz', async (_req,res) => { try { const r=await pool.query('select current_timestamp as now'); res.json({ok:true,service:'zorqemi-api',database:'ok',time:r.rows[0].now}); } catch(e) { console.error('healthz',e); res.status(503).json({ok:false,service:'zorqemi-api',database:'unavailable'}); } });
-app.get('/api/v1/status', async (_req,res) => { try { const r=await pool.query('select version from schema_migrations order by version desc limit 1'); res.json({ok:true,version:'0.3.0',migration:r.rows[0]?.version??null,database:'postgresql'}); } catch(e) { console.error('status',e); res.status(503).json({ok:false,version:'0.3.0',migration:'database-unavailable'}); } });
+app.get('/api/v1/status', async (_req,res) => { try { const r=await pool.query('select version from schema_migrations order by version desc limit 1'); res.json({ok:true,version:'0.4.0',migration:r.rows[0]?.version??null,database:'postgresql'}); } catch(e) { console.error('status',e); res.status(503).json({ok:false,version:'0.4.0',migration:'database-unavailable'}); } });
 
 app.post('/api/v1/auth/register', async (req,res,next) => { try { const result=await registerMerchant(pool,req.body||{}); setMerchantSessionCookie(res,result.token); res.status(201).json({ok:true,user:result.user}); } catch(e) { next(e); } });
 app.post('/api/v1/auth/login', async (req,res,next) => { try { const email=String(req.body?.email||'').trim(); const password=String(req.body?.password||''); if(!email||!validatePassword(password))return res.status(400).json({ok:false,error:'invalid_credentials'}); const result=await loginMerchant(pool,email,password); if(!result)return res.status(401).json({ok:false,error:'invalid_credentials'}); setMerchantSessionCookie(res,result.token); res.json({ok:true,user:result.user}); } catch(e){next(e);} });
@@ -28,10 +41,18 @@ app.get('/api/v1/merchant/:merchantId',requireOwnMerchant,async(req,res,next)=>{
 app.get('/api/v1/merchant/:merchantId/products',requireOwnMerchant,async(req,res,next)=>{try{const data=await listMerchantProducts(pool,requestedMerchant(req),req.merchantUser.user_id);if(!data)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,...data});}catch(e){next(e);}});
 app.post('/api/v1/merchant/:merchantId/products',requireOwnMerchant,async(req,res,next)=>{try{const product=await createMerchantProduct(pool,requestedMerchant(req),req.merchantUser.user_id,req.body||{});if(!product)return res.status(404).json({ok:false,error:'merchant_not_found'});res.status(201).json({ok:true,product});}catch(e){next(e);}});
 app.patch('/api/v1/merchant/:merchantId/products/:productId',requireOwnMerchant,async(req,res,next)=>{try{const product=await updateMerchantProduct(pool,requestedMerchant(req),req.merchantUser.user_id,req.params.productId,req.body||{});if(!product)return res.status(404).json({ok:false,error:'product_not_found'});res.json({ok:true,product});}catch(e){next(e);}});
-app.get('/api/v1/merchant/:merchantId/orders',requireOwnMerchant,async(req,res,next)=>{try{const orders=await getMerchantOrders(pool,requestedMerchant(req),req.merchantUser.user_id,req.query.limit);if(!orders)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,orders});}catch(e){next(e);}});
+app.get('/api/v1/merchant/:merchantId/orders',requireOwnMerchant,async(req,res,next)=>{try{const orders=await getMerchantOrders(pool,requestedMerchant(req),req.merchantUserUser?.user_id||req.merchantUser.user_id,req.query.limit);if(!orders)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,orders});}catch(e){next(e);}});
 app.patch('/api/v1/merchant/:merchantId/orders/:orderId',requireOwnMerchant,async(req,res,next)=>{try{const order=await updateMerchantOrder(pool,requestedMerchant(req),req.merchantUser.user_id,req.params.orderId,String(req.body?.status||''));if(!order)return res.status(404).json({ok:false,error:'order_not_found_or_locked'});res.json({ok:true,order});}catch(e){next(e);}});
 app.get('/api/v1/merchant/:merchantId/settings',requireOwnMerchant,async(req,res,next)=>{try{const settings=await getShopSettings(pool,requestedMerchant(req),req.merchantUser.user_id);if(!settings)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,settings});}catch(e){next(e);}});
 app.patch('/api/v1/merchant/:merchantId/settings',requireOwnMerchant,async(req,res,next)=>{try{const settings=await updateShopSettings(pool,requestedMerchant(req),req.merchantUser.user_id,req.body||{});if(!settings)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,settings});}catch(e){next(e);}});
+
+// Public checkout: prices and stock are always read from PostgreSQL; client totals are ignored.
+app.post('/api/v1/checkout/session', async (req,res,next) => {
+  try {
+    const result = await createCheckoutSession(pool, req.body || {});
+    res.status(201).json({ ok: true, checkout: result });
+  } catch (e) { next(e); }
+});
 
 app.get('/api/v1/shop',async(req,res,next)=>{try{const shop=await resolveShopByHost(pool,req.get('host'));if(!shop)return res.status(404).json({ok:false,error:'shop_not_found'});res.json({ok:true,shop});}catch(e){next(e);}});
 app.get('/api/v1/shop/products',async(req,res,next)=>{try{const shop=await resolveShopByHost(pool,req.get('host'));if(!shop)return res.status(404).json({ok:false,error:'shop_not_found'});const result=await pool.query(`SELECT p.id,p.name,p.description,p.price,p.stock,p.active,p.source_provider,p.source_product_id,p.created_at,COALESCE(json_agg(json_build_object('id',v.id,'name',v.name,'sku',v.sku,'price',v.price,'stock',v.stock,'active',v.active,'source_variant_id',v.source_variant_id) ORDER BY v.created_at) FILTER(WHERE v.id IS NOT NULL),'[]'::json) variants FROM products p LEFT JOIN product_variants v ON v.product_id=p.id WHERE p.merchant_id=$1 AND p.active=true GROUP BY p.id ORDER BY p.created_at DESC`,[shop.id]);res.json({ok:true,shop,products:result.rows});}catch(e){next(e);}});
