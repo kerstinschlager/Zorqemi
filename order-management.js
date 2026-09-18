@@ -6,6 +6,7 @@
   const state = { orders: [], target: '#orders' };
 
   async function getMerchant() {
+    if (window.serverSession && window.merchant) return window.merchant;
     const { data: session } = await db.auth.getSession();
     const uid = session.session?.user?.id;
     if (!uid) return null;
@@ -16,6 +17,11 @@
   async function loadOrders() {
     const merchant = await getMerchant();
     if (!merchant) return [];
+    if (window.serverSession && window.serverFetch) {
+      const r = await window.serverFetch('/merchant/'+encodeURIComponent(merchant.id)+'/orders?limit=200');
+      if (!r.response.ok) throw new Error(r.payload?.error || 'orders_load_failed');
+      return Array.isArray(r.payload?.orders) ? r.payload.orders : [];
+    }
     const { data: prodIds, error: prodError } = await db.from('products').select('id').eq('merchant_id', merchant.id);
     if (prodError) throw prodError;
     const ids = (prodIds || []).map(p => p.id);
@@ -23,11 +29,7 @@
     const { data: items, error } = await db.from('order_items').select('order_id,product_id,product_name,quantity,unit_price,orders(id,status,total,created_at,shipping_carrier,tracking_number,tracking_url,shipped_at)').in('product_id', ids);
     if (error) throw error;
     const grouped = {};
-    (items || []).forEach(i => {
-      const o = i.orders;
-      if (!o) return;
-      (grouped[o.id] ??= { ...o, items: [] }).items.push(i);
-    });
+    (items || []).forEach(i => { const o = i.orders; if (!o) return; (grouped[o.id] ??= { ...o, items: [] }).items.push(i); });
     return Object.values(grouped).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
   }
 
@@ -92,11 +94,15 @@
   };
 
   window.changeOrderStatus = async (id, status) => {
-    const { error } = await db.rpc('merchant_set_order_status', { p_order_id: id, p_status: status });
-    if (error) return alert(error.message);
+    if (window.serverSession && window.merchant && window.serverFetch) {
+      const r = await window.serverFetch('/merchant/'+encodeURIComponent(window.merchant.id)+'/orders/'+encodeURIComponent(id), {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+      if (!r.response.ok) return alert(r.payload?.error==='invalid_status'?'Der Bestellstatus ist ungültig.':'Bestellstatus konnte nicht aktualisiert werden.');
+    } else {
+      const { error } = await db.rpc('merchant_set_order_status', { p_order_id: id, p_status: status });
+      if (error) return alert(error.message);
+    }
     if (typeof window.toast === 'function') window.toast('Bestellstatus aktualisiert');
-    await window.renderMerchantOrders('#orders');
-    await window.renderMerchantOrders('#ordersFull');
+    await window.renderMerchantOrders('#orders'); await window.renderMerchantOrders('#ordersFull');
   };
 
   window.saveShipping = async (id) => {
