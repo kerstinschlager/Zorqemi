@@ -110,7 +110,7 @@ export async function createCheckoutSession(pool, body) {
 
   const merchantParams = [];
   const merchantValues = merchantTotals.map((item, index) => {
-    const base = index * 7 + 2;
+    const base = index * 6 + 2;
     merchantParams.push(item.merchantId, item.currency, item.subtotal, item.shipping, item.tax, item.total);
     return `($1,$${base},$${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5})`;
   });
@@ -120,13 +120,41 @@ export async function createCheckoutSession(pool, body) {
   );
 
   try {
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      line_items: normalized.map(({ product, quantity }) => ({ quantity, price_data: {
+    const lineItems = normalized.map(({ product, quantity }) => ({
+      quantity,
+      price_data: {
         currency: String(currency || 'EUR').toLowerCase(),
         unit_amount: money(product.price),
-        product_data: { name: product.name, description: product.description ? String(product.description).slice(0, 500) : undefined }
-      }})),
+        product_data: {
+          name: product.name,
+          description: product.description ? String(product.description).slice(0, 500) : undefined
+        }
+      }
+    }));
+    if (shipping > 0) {
+      lineItems.push({
+        quantity: 1,
+        price_data: {
+          currency: String(currency || 'EUR').toLowerCase(),
+          unit_amount: money(shipping),
+          product_data: { name: 'Versandkosten' }
+        }
+      });
+    }
+    if (tax > 0) {
+      lineItems.push({
+        quantity: 1,
+        price_data: {
+          currency: String(currency || 'EUR').toLowerCase(),
+          unit_amount: money(tax),
+          product_data: { name: 'MwSt.' }
+        }
+      });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      line_items: lineItems,
       shipping_address_collection: { allowed_countries: ['DE', 'AT', 'NL', 'BE', 'FR', 'PL', 'CZ'] },
       customer_email: body?.customer_email ? String(body.customer_email).trim().slice(0, 254) : undefined,
       success_url: body?.success_url || 'https://zorqemishop.de/?checkout=success',
