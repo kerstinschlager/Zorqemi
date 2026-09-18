@@ -58,6 +58,16 @@ app.get('/api/v1/shop',async(req,res,next)=>{try{const shop=await resolveShopByH
 app.get('/api/v1/shop/products',async(req,res,next)=>{try{const shop=await resolveShopByHost(pool,req.get('host'));if(!shop)return res.status(404).json({ok:false,error:'shop_not_found'});const result=await pool.query(`SELECT p.id,p.name,p.description,p.price,p.stock,p.active,p.source_provider,p.source_product_id,p.created_at,COALESCE(json_agg(json_build_object('id',v.id,'name',v.name,'sku',v.sku,'price',v.price,'stock',v.stock,'active',v.active,'source_variant_id',v.source_variant_id) ORDER BY v.created_at) FILTER(WHERE v.id IS NOT NULL),'[]'::json) variants FROM products p LEFT JOIN product_variants v ON v.product_id=p.id WHERE p.merchant_id=$1 AND p.active=true GROUP BY p.id ORDER BY p.created_at DESC`,[shop.id]);res.json({ok:true,shop,products:result.rows});}catch(e){next(e);}});
 app.get('/api/v1/shop/:merchantId',async(req,res,next)=>{try{const shop=await getPublicShop(pool,req.params.merchantId);if(!shop)return res.status(404).json({ok:false,error:'shop_not_found'});res.json({ok:true,shop});}catch(e){next(e);}});
 
+app.get('/api/v1/marketplace/products',async(_req,res,next)=>{try{const result=await pool.query(`
+  SELECT p.id,p.merchant_id,p.name,p.description,p.price,p.stock,p.active,p.image_url,p.category,p.created_at,
+         m.name AS merchant_name,m.slug AS merchant_slug,m.shop_slug
+    FROM products p
+    JOIN merchants m ON m.id=p.merchant_id
+   WHERE p.active=true AND m.published=true
+   ORDER BY p.created_at DESC
+   LIMIT 500
+`);res.json({ok:true,products:result.rows});}catch(e){next(e);}});
+
 app.use((_req,res)=>res.status(404).json({ok:false,error:'not_found'}));
 app.use((error,_req,res,_next)=>{console.error(error);const status=Number(error?.status)||500;res.status(status).json({ok:false,error:status<500?error.message:'internal_server_error'});});
 
