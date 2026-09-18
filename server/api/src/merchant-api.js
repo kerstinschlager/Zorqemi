@@ -68,3 +68,30 @@ export async function updateMerchantShipping(pool, merchantId, userId, orderId, 
   const r=await pool.query(`UPDATE orders SET shipping_carrier=$1,tracking_number=$2,tracking_url=$3,shipped_at=CASE WHEN $2 IS NOT NULL OR $3 IS NOT NULL THEN COALESCE(shipped_at,now()) ELSE shipped_at END,updated_at=now() WHERE id=$4 AND (merchant_id=$5 OR EXISTS(SELECT 1 FROM order_items oi WHERE oi.order_id=orders.id AND oi.merchant_id=$5)) RETURNING *`,[carrier||null,tracking||null,trackingUrl||null,orderId,merchantId]);
   return r.rows[0]??null;
 }
+
+export async function getMerchantProfile(pool, merchantId, userId) {
+  const merchant=await getMerchantForOwner(pool,merchantId,userId); if(!merchant)return null;
+  const r=await pool.query('SELECT id,owner_id,name,slug,shop_slug,email,contact_email,vat_id,logo_url,shop_url,payout_method,payout_email,description,published,created_at,updated_at FROM merchants WHERE id=$1',[merchantId]);
+  return r.rows[0]??null;
+}
+export async function updateMerchantProfile(pool, merchantId, userId, body) {
+  if(!await getMerchantForOwner(pool,merchantId,userId))return null;
+  const fields=[],values=[]; const add=(k,v)=>{fields.push(k+'=$'+(values.length+1));values.push(v);};
+  for(const [key,max] of [['contact_email',320],['vat_id',32],['logo_url',2000],['shop_url',2000],['payout_method',80],['payout_email',320],['description',5000]]) if(body?.[key]!==undefined){const v=body[key]==null?'':String(body[key]).trim();if(v.length>max){const e=new Error('invalid_profile');e.status=400;throw e;}add(key,v);}
+  if(body?.published!==undefined){if(typeof body.published!=='boolean'){const e=new Error('invalid_published');e.status=400;throw e;}add('published',body.published);}
+  if(!fields.length)return getMerchantProfile(pool,merchantId,userId);
+  values.push(merchantId); const r=await pool.query('UPDATE merchants SET '+fields.join(',')+',updated_at=now() WHERE id=$'+values.length+' RETURNING id,owner_id,name,slug,shop_slug,email,contact_email,vat_id,logo_url,shop_url,payout_method,payout_email,description,published,created_at,updated_at',values); return r.rows[0]??null;
+}
+export async function getMerchantLegal(pool,merchantId,userId) {
+  if(!await getMerchantForOwner(pool,merchantId,userId))return null;
+  const r=await pool.query('SELECT * FROM merchant_legal_settings WHERE merchant_id=$1',[merchantId]);
+  if(r.rows[0])return r.rows[0];
+  const c=await pool.query('INSERT INTO merchant_legal_settings(merchant_id) VALUES($1) RETURNING *',[merchantId]); return c.rows[0];
+}
+export async function updateMerchantLegal(pool,merchantId,userId,body) {
+  if(!await getMerchantForOwner(pool,merchantId,userId))return null; await getMerchantLegal(pool,merchantId,userId);
+  const fields=[],values=[]; const add=(k,v)=>{fields.push(k+'=$'+(values.length+1));values.push(v);};
+  for(const key of ['impressum','datenschutz','agb','widerruf']) if(body?.[key]!==undefined){const v=String(body[key]??'');if(v.length>50000){const e=new Error('invalid_legal');e.status=400;throw e;}add(key,v);}
+  if(!fields.length)return getMerchantLegal(pool,merchantId,userId);
+  values.push(merchantId);const r=await pool.query('UPDATE merchant_legal_settings SET '+fields.join(',')+',updated_at=now() WHERE merchant_id=$'+values.length+' RETURNING *',values);return r.rows[0]??null;
+}
