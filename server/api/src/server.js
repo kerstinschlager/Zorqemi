@@ -2,7 +2,7 @@ import express from 'express';
 import pg from 'pg';
 import { migrate } from './migrate.js';
 import { resolveShopByHost, getPublicShop } from './shop-router.js';
-import { getMerchantForOwner, listMerchantProducts, createMerchantProduct, updateMerchantProduct, getMerchantOrders, updateMerchantOrder, getShopSettings, updateShopSettings } from './merchant-api.js';
+import { getMerchantForOwner, listMerchantProducts, createMerchantProduct, updateMerchantProduct, getMerchantOrders, updateMerchantOrder, getShopSettings, updateShopSettings, updateMerchantShipping } from './merchant-api.js';
 import { getMerchantFromRequest, loginMerchant, registerMerchant, logoutMerchant, setMerchantSessionCookie, validatePassword } from './auth.js';
 import { createCheckoutSession, handleStripeWebhook } from './checkout-api.js';
 
@@ -43,6 +43,7 @@ app.post('/api/v1/merchant/:merchantId/products',requireOwnMerchant,async(req,re
 app.patch('/api/v1/merchant/:merchantId/products/:productId',requireOwnMerchant,async(req,res,next)=>{try{const product=await updateMerchantProduct(pool,requestedMerchant(req),req.merchantUser.user_id,req.params.productId,req.body||{});if(!product)return res.status(404).json({ok:false,error:'product_not_found'});res.json({ok:true,product});}catch(e){next(e);}});
 app.get('/api/v1/merchant/:merchantId/orders',requireOwnMerchant,async(req,res,next)=>{try{const orders=await getMerchantOrders(pool,requestedMerchant(req),req.merchantUser.user_id,req.query.limit);if(!orders)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,orders});}catch(e){next(e);}});
 app.patch('/api/v1/merchant/:merchantId/orders/:orderId',requireOwnMerchant,async(req,res,next)=>{try{const order=await updateMerchantOrder(pool,requestedMerchant(req),req.merchantUser.user_id,req.params.orderId,String(req.body?.status||''));if(!order)return res.status(404).json({ok:false,error:'order_not_found_or_locked'});res.json({ok:true,order});}catch(e){next(e);}});
+app.patch('/api/v1/merchant/:merchantId/orders/:orderId/shipping',requireOwnMerchant,async(req,res,next)=>{try{const order=await updateMerchantShipping(pool,requestedMerchant(req),req.merchantUser.user_id,req.params.orderId,req.body||{});if(!order)return res.status(404).json({ok:false,error:'order_not_found'});res.json({ok:true,order});}catch(e){next(e);}});
 app.get('/api/v1/merchant/:merchantId/settings',requireOwnMerchant,async(req,res,next)=>{try{const settings=await getShopSettings(pool,requestedMerchant(req),req.merchantUser.user_id);if(!settings)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,settings});}catch(e){next(e);}});
 app.patch('/api/v1/merchant/:merchantId/settings',requireOwnMerchant,async(req,res,next)=>{try{const settings=await updateShopSettings(pool,requestedMerchant(req),req.merchantUser.user_id,req.body||{});if(!settings)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,settings});}catch(e){next(e);}});
 
