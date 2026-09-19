@@ -56,3 +56,15 @@ export async function setPlatformCommission(pool, rate) {
   const r=await pool.query('UPDATE platform_settings SET default_commission_rate=$1,updated_at=now() WHERE id=true RETURNING default_commission_rate',[value]);
   return Number(r.rows[0].default_commission_rate);
 }
+
+
+export async function listAdminMerchants(pool, limit=200) {
+  const safe=Math.min(Math.max(Number(limit)||200,1),500);
+  const r=await pool.query(`SELECT m.id,m.name,m.email,m.payout_method,m.payout_email,m.published,
+    COALESCE((SELECT SUM(o.total) FROM orders o WHERE o.merchant_id=m.id AND o.status IN ('paid','processing','shipped','completed') AND NOT EXISTS (SELECT 1 FROM merchant_payout_orders po WHERE po.order_id=o.id)),0) AS pending_gross,
+    COALESCE((SELECT SUM(o.total * (1 - COALESCE((SELECT default_commission_rate FROM platform_settings WHERE id=true),10) / 100)) FROM orders o WHERE o.merchant_id=m.id AND o.status IN ('paid','processing','shipped','completed') AND NOT EXISTS (SELECT 1 FROM merchant_payout_orders po WHERE po.order_id=o.id)),0) AS pending_net
+    FROM merchants m
+    ORDER BY m.created_at DESC
+    LIMIT $1`,[safe]);
+  return r.rows;
+}
