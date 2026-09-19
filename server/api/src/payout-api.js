@@ -33,6 +33,21 @@ export async function createMerchantPayout(pool, merchantId) {
   } catch(e) { try{await client.query('ROLLBACK')}catch{} throw e; } finally {client.release();}
 }
 
+export async function cancelMerchantPayout(pool, payoutId) {
+  if(!uuid(payoutId)){const e=new Error('invalid_payout_id');e.status=400;throw e;}
+  const client=await pool.connect();
+  try{
+    await client.query('BEGIN');
+    const payout=(await client.query("SELECT id,status FROM merchant_payouts WHERE id=$1 FOR UPDATE",[payoutId])).rows[0];
+    if(!payout){await client.query('ROLLBACK');return null;}
+    if(payout.status!=='pending'){const e=new Error('payout_not_pending');e.status=409;throw e;}
+    await client.query('DELETE FROM merchant_payout_orders WHERE payout_id=$1',[payoutId]);
+    const r=await client.query("UPDATE merchant_payouts SET status='cancelled' WHERE id=$1 RETURNING *",[payoutId]);
+    await client.query('COMMIT');
+    return r.rows[0]??null;
+  }catch(e){try{await client.query('ROLLBACK')}catch{}throw e;}finally{client.release();}
+}
+
 export async function markPayoutPaid(pool, payoutId, paidBy=null) {
   if(!uuid(payoutId)){const e=new Error('invalid_payout_id');e.status=400;throw e;}
   const r=await pool.query(`UPDATE merchant_payouts SET status='paid',paid_at=COALESCE(paid_at,now()),paid_by=$2 WHERE id=$1 AND status='pending' RETURNING *`,[payoutId,uuid(paidBy)?paidBy:null]);
