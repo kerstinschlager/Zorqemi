@@ -1,4 +1,4 @@
-const CACHE = 'zorqemi-v1';
+const CACHE = 'zorqemi-v2';
 const APP_SHELL = ['./', './index.html', './styles.css', './zq-mobile.css', './zq-visuals.js', './manifest.json', './zq-icon.svg'];
 
 self.addEventListener('install', event => {
