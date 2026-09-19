@@ -5,6 +5,7 @@ import { resolveShopByHost, getPublicShop } from './shop-router.js';
 import { getMerchantForOwner, listMerchantProducts, createMerchantProduct, updateMerchantProduct, getMerchantOrders, updateMerchantOrder, getShopSettings, updateShopSettings, updateMerchantShipping, getMerchantProfile, updateMerchantProfile, getMerchantLegal, updateMerchantLegal } from './merchant-api.js';
 import { getMerchantFromRequest, loginMerchant, registerMerchant, logoutMerchant, setMerchantSessionCookie, validatePassword } from './auth.js';
 import { createCheckoutSession, handleStripeWebhook } from './checkout-api.js';
+import { getMerchantPayouts, createMerchantPayout, markPayoutPaid, listAdminPayouts, getPlatformCommission, setPlatformCommission } from './payout-api.js';
 
 const { Pool } = pg;
 const app = express();
@@ -37,6 +38,16 @@ app.post('/api/v1/auth/logout', async (req,res,next) => { try { await logoutMerc
 async function requireOwnMerchant(req,res,next) { try { const user=await getMerchantFromRequest(pool,req); if(!user)return res.status(401).json({ok:false,error:'authentication_required'}); req.merchantUser=user; next(); } catch(e){next(e);} }
 function requestedMerchant(req){return req.params.merchantId;}
 
+async function requirePlatformAdmin(req,res,next) {
+  try {
+    const user=await getMerchantFromRequest(pool,req);
+    if(!user)return res.status(401).json({ok:false,error:'authentication_required'});
+    if(user.role!=='admin')return res.status(403).json({ok:false,error:'admin_required'});
+    req.merchantUser=user;
+    next();
+  } catch(e){next(e);}
+}
+
 app.get('/api/v1/merchant/:merchantId',requireOwnMerchant,async(req,res,next)=>{try{const merchant=await getMerchantForOwner(pool,requestedMerchant(req),req.merchantUser.user_id);if(!merchant)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,merchant});}catch(e){next(e);}});
 app.get('/api/v1/merchant/:merchantId/products',requireOwnMerchant,async(req,res,next)=>{try{const data=await listMerchantProducts(pool,requestedMerchant(req),req.merchantUser.user_id);if(!data)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,...data});}catch(e){next(e);}});
 app.post('/api/v1/merchant/:merchantId/products',requireOwnMerchant,async(req,res,next)=>{try{const product=await createMerchantProduct(pool,requestedMerchant(req),req.merchantUser.user_id,req.body||{});if(!product)return res.status(404).json({ok:false,error:'merchant_not_found'});res.status(201).json({ok:true,product});}catch(e){next(e);}});
@@ -49,6 +60,13 @@ app.patch('/api/v1/merchant/:merchantId/profile',requireOwnMerchant,async(req,re
 app.get('/api/v1/merchant/:merchantId/legal',requireOwnMerchant,async(req,res,next)=>{try{const legal=await getMerchantLegal(pool,requestedMerchant(req),req.merchantUser.user_id);if(!legal)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,legal});}catch(e){next(e);}});
 app.patch('/api/v1/merchant/:merchantId/legal',requireOwnMerchant,async(req,res,next)=>{try{const legal=await updateMerchantLegal(pool,requestedMerchant(req),req.merchantUser.user_id,req.body||{});if(!legal)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,legal});}catch(e){next(e);}});
 app.get('/api/v1/merchant/:merchantId/settings',requireOwnMerchant,async(req,res,next)=>{try{const settings=await getShopSettings(pool,requestedMerchant(req),req.merchantUser.user_id);if(!settings)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,settings});}catch(e){next(e);}});
+app.get('/api/v1/merchant/:merchantId/payouts',requireOwnMerchant,async(req,res,next)=>{try{const data=await getMerchantPayouts(pool,requestedMerchant(req),req.merchantUser.user_id,req.query.limit);if(!data)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,...data});}catch(e){next(e);}});
+
+app.get('/api/v1/admin/payouts',requirePlatformAdmin,async(req,res,next)=>{try{res.json({ok:true,payouts:await listAdminPayouts(pool,req.query.limit)});}catch(e){next(e);}});
+app.post('/api/v1/admin/payouts/:merchantId',requirePlatformAdmin,async(req,res,next)=>{try{const payout=await createMerchantPayout(pool,req.params.merchantId);if(!payout)return res.status(409).json({ok:false,error:'no_payoutable_orders'});res.status(201).json({ok:true,payout});}catch(e){next(e);}});
+app.patch('/api/v1/admin/payouts/:payoutId/paid',requirePlatformAdmin,async(req,res,next)=>{try{const payout=await markPayoutPaid(pool,req.params.payoutId,req.merchantUser.user_id);if(!payout)return res.status(404).json({ok:false,error:'payout_not_found_or_already_paid'});res.json({ok:true,payout});}catch(e){next(e);}});
+app.get('/api/v1/admin/commission',requirePlatformAdmin,async(_req,res,next)=>{try{res.json({ok:true,rate:await getPlatformCommission(pool)});}catch(e){next(e);}});
+app.patch('/api/v1/admin/commission',requirePlatformAdmin,async(req,res,next)=>{try{res.json({ok:true,rate:await setPlatformCommission(pool,req.body?.rate)});}catch(e){next(e);}});
 app.patch('/api/v1/merchant/:merchantId/settings',requireOwnMerchant,async(req,res,next)=>{try{const settings=await updateShopSettings(pool,requestedMerchant(req),req.merchantUser.user_id,req.body||{});if(!settings)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,settings});}catch(e){next(e);}});
 
 // Public checkout: prices and stock are always read from PostgreSQL; client totals are ignored.
