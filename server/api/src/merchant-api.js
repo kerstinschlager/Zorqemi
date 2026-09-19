@@ -32,7 +32,8 @@ export async function createMerchantProduct(pool, merchantId, userId, body) {
   const client=await pool.connect();
   try { await client.query('BEGIN');
     const product=await client.query(`INSERT INTO products(merchant_id,name,description,price,stock,active,image_url,category,source_provider,source_product_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,[merchantId,name,description,price,stock,body.active!==false,imageUrl,category,body.source_provider||null,body.source_product_id||null]);
-    for(const v of Array.isArray(body.variants)?body.variants:[]) { const vn=String(v.name||'').trim(); if(!vn) continue; await client.query(`INSERT INTO product_variants(product_id,name,sku,price,stock,active,source_variant_id) VALUES($1,$2,$3,$4,$5,$6,$7)`,[product.rows[0].id,vn,v.sku?String(v.sku):null,v.price==null?null:Number(v.price),Number(v.stock??0),v.active!==false,v.source_variant_id||null]); }
+    if(body.variants!==undefined && !Array.isArray(body.variants)){const x=new Error('invalid_variants');x.status=400;throw x;}
+    for(const v of (body.variants||[])) { const vn=String(v?.name??'').trim(),sku=v?.sku==null?'':String(v.sku).trim(); const price=v?.price===null||v?.price===undefined||v?.price===''?null:Number(v.price),stock=Number(v?.stock??0); if(!vn||vn.length>200||sku.length>120||(price!==null&&(!Number.isFinite(price)||price<0))||!Number.isInteger(stock)||stock<0){const x=new Error('invalid_variants');x.status=400;throw x;} await client.query(`INSERT INTO product_variants(product_id,name,sku,price,stock,active,source_variant_id) VALUES($1,$2,$3,$4,$5,$6,$7)`,[product.rows[0].id,vn,sku||null,price,stock,v?.active!==false,v?.source_variant_id||null]); }
     await client.query('COMMIT'); return product.rows[0];
   } catch(e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
 }
@@ -55,7 +56,7 @@ export async function updateMerchantProduct(pool, merchantId, userId, productId,
     const product=r.rows[0]; if(!product){await client.query('ROLLBACK');return null;}
     if(body.variants!==undefined){
       if(!Array.isArray(body.variants)){const x=new Error('invalid_variants');x.status=400;throw x;}
-      const seen=[];
+      const seen=[]; const seenIds=new Set();
       for(const v of body.variants){
         const id=v?.id?String(v.id):null; if(id) requireUuid(id,'variant_id');
         const name=String(v?.name??'').trim(),sku=v?.sku==null?'':String(v.sku).trim();
@@ -63,6 +64,7 @@ export async function updateMerchantProduct(pool, merchantId, userId, productId,
         const stock=Number(v?.stock??0);
         if(!name||name.length>200||sku.length>120||(price!==null&&(!Number.isFinite(price)||price<0))||!Number.isInteger(stock)||stock<0){const x=new Error('invalid_variants');x.status=400;throw x;}
         if(id){
+          if(seenIds.has(id)){const x=new Error('duplicate_variant');x.status=400;throw x;} seenIds.add(id);
           const own=await client.query('SELECT id FROM product_variants WHERE id=$1 AND product_id=$2',[id,productId]);
           if(!own.rows[0]){const x=new Error('invalid_variant');x.status=400;throw x;}
           await client.query('UPDATE product_variants SET name=$1,sku=$2,price=$3,stock=$4,active=$5,updated_at=now() WHERE id=$6 AND product_id=$7',[name,sku||null,price,stock,v?.active!==false,id,productId]);
