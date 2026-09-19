@@ -40,53 +40,44 @@ export async function createMerchantProduct(pool, merchantId, userId, body) {
 export async function updateMerchantProduct(pool, merchantId, userId, productId, body) {
   requireUuid(productId,'product_id');
   if(!await getMerchantForOwner(pool,merchantId,userId)) return null;
+  const fields=[],values=[]; const add=(c,v)=>{fields.push(`${c}=$${values.length+1}`);values.push(v);};
+  if(body.name!==undefined){const v=String(body.name).trim();if(!v||v.length>200){const x=new Error('invalid_product');x.status=400;throw x;}add('name',v);}
+  if(body.description!==undefined){const v=body.description==null?null:String(body.description).trim();if(v?.length>5000){const x=new Error('invalid_product');x.status=400;throw x;}add('description',v);}
+  if(body.image_url!==undefined){const v=body.image_url==null?null:String(body.image_url).trim();if(v?.length>2000){const x=new Error('invalid_product');x.status=400;throw x;}add('image_url',v);}
+  if(body.category!==undefined){const v=body.category==null?null:String(body.category).trim();if(v?.length>120){const x=new Error('invalid_product');x.status=400;throw x;}add('category',v);}
+  if(body.price!==undefined){const v=Number(body.price);if(!Number.isFinite(v)||v<0){const x=new Error('invalid_product');x.status=400;throw x;}add('price',v);}
+  if(body.stock!==undefined){const v=Number(body.stock);if(!Number.isInteger(v)||v<0){const x=new Error('invalid_product');x.status=400;throw x;}add('stock',v);}
+  if(body.active!==undefined)add('active',Boolean(body.active));
   const client=await pool.connect();
-  try {
+  try{
     await client.query('BEGIN');
-    const fields=[],values=[];
-    const add=(c,v)=>{fields.push(`${c}=$${values.length+1}`);values.push(v);};
-    if(body.name!==undefined){const v=String(body.name).trim();if(!v||v.length>200){const e=new Error('invalid_product');e.status=400;throw e;}add('name',v);}
-    if(body.description!==undefined){const v=body.description==null?null:String(body.description).trim();if(v?.length>5000){const e=new Error('invalid_product');e.status=400;throw e;}add('description',v);}
-    if(body.image_url!==undefined){const v=body.image_url==null?null:String(body.image_url).trim();if(v?.length>2000){const e=new Error('invalid_product');e.status=400;throw e;}add('image_url',v);}
-    if(body.category!==undefined){const v=body.category==null?null:String(body.category).trim();if(v?.length>120){const e=new Error('invalid_product');e.status=400;throw e;}add('category',v);}
-    if(body.price!==undefined){const v=Number(body.price);if(!Number.isFinite(v)||v<0){const e=new Error('invalid_product');e.status=400;throw e;}add('price',v);}
-    if(body.stock!==undefined){const v=Number(body.stock);if(!Number.isInteger(v)||v<0){const e=new Error('invalid_product');e.status=400;throw e;}add('stock',v);}
-    if(body.active!==undefined)add('active',Boolean(body.active));
-    const productResult=fields.length
-      ? await client.query(`UPDATE products SET ${fields.join(',')},updated_at=now() WHERE merchant_id=$${values.length+1} AND id=$${values.length+2} RETURNING *`,[...values,merchantId,productId])
-      : await client.query('SELECT * FROM products WHERE merchant_id=$1 AND id=$2',[merchantId,productId]);
-    const product=productResult.rows[0];
-    if(!product){await client.query('ROLLBACK');return null;}
-
+    const r=fields.length?await client.query(`UPDATE products SET ${fields.join(',')},updated_at=now() WHERE merchant_id=$${values.length+1} AND id=$${values.length+2} RETURNING *`,[...values,merchantId,productId]):await client.query('SELECT * FROM products WHERE merchant_id=$1 AND id=$2',[merchantId,productId]);
+    const product=r.rows[0]; if(!product){await client.query('ROLLBACK');return null;}
     if(body.variants!==undefined){
-      if(!Array.isArray(body.variants)){const e=new Error('invalid_variants');e.status=400;throw e;}
-      const seen=new Set();
+      if(!Array.isArray(body.variants)){const x=new Error('invalid_variants');x.status=400;throw x;}
+      const seen=[];
       for(const v of body.variants){
-        const id=v?.id?String(v.id):null;
-        if(id){requireUuid(id,'variant_id');if(seen.has(id)){const e=new Error('invalid_variants');e.status=400;throw e;}seen.add(id);}
-        const name=String(v?.name??'').trim();
-        const sku=v?.sku==null?'':String(v.sku).trim();
+        const id=v?.id?String(v.id):null; if(id) requireUuid(id,'variant_id');
+        const name=String(v?.name??'').trim(),sku=v?.sku==null?'':String(v.sku).trim();
         const price=v?.price===null||v?.price===undefined||v?.price===''?null:Number(v.price);
         const stock=Number(v?.stock??0);
-        const active=v?.active!==false;
-        if(!name||name.length>200||sku.length>120||(price!==null&&(!Number.isFinite(price)||price<0))||!Number.isInteger(stock)||stock<0||typeof active!=='boolean'){
-          const e=new Error('invalid_variants');e.status=400;throw e;
-        }
+        if(!name||name.length>200||sku.length>120||(price!==null&&(!Number.isFinite(price)||price<0))||!Number.isInteger(stock)||stock<0){const x=new Error('invalid_variants');x.status=400;throw x;}
         if(id){
-          const check=await client.query('SELECT id FROM product_variants WHERE id=$1 AND product_id=$2',[id,productId]);
-          if(!check.rows[0]){const e=new Error('invalid_variant');e.status=400;throw e;}
-          await client.query('UPDATE product_variants SET name=$1,sku=$2,price=$3,stock=$4,active=$5,updated_at=now() WHERE id=$6 AND product_id=$7',[name,sku||null,price,stock,active,id,productId]);
+          const own=await client.query('SELECT id FROM product_variants WHERE id=$1 AND product_id=$2',[id,productId]);
+          if(!own.rows[0]){const x=new Error('invalid_variant');x.status=400;throw x;}
+          await client.query('UPDATE product_variants SET name=$1,sku=$2,price=$3,stock=$4,active=$5,updated_at=now() WHERE id=$6 AND product_id=$7',[name,sku||null,price,stock,v?.active!==false,id,productId]);
+          seen.push(id);
         }else{
-          await client.query('INSERT INTO product_variants(product_id,name,sku,price,stock,active) VALUES($1,$2,$3,$4,$5,$6)',[productId,name,sku||null,price,stock,active]);
+          const ins=await client.query('INSERT INTO product_variants(product_id,name,sku,price,stock,active) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[productId,name,sku||null,price,stock,v?.active!==false]);
+          seen.push(ins.rows[0].id);
         }
       }
-      await client.query('UPDATE product_variants SET active=false,updated_at=now() WHERE product_id=$1 AND id <> ALL($2::uuid[])',[productId,[...seen]]);
-      if(seen.size===0) await client.query('UPDATE product_variants SET active=false,updated_at=now() WHERE product_id=$1',[productId]);
+      if(seen.length) await client.query('UPDATE product_variants SET active=false,updated_at=now() WHERE product_id=$1 AND NOT(id=ANY($2::uuid[]))',[productId,seen]);
+      else await client.query('UPDATE product_variants SET active=false,updated_at=now() WHERE product_id=$1',[productId]);
     }
     const variants=await client.query('SELECT * FROM product_variants WHERE product_id=$1 ORDER BY created_at',[productId]);
-    await client.query('COMMIT');
-    return {...product,variants:variants.rows};
-  } catch(e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+    await client.query('COMMIT'); return {...product,variants:variants.rows};
+  }catch(err){await client.query('ROLLBACK');throw err;}finally{client.release();}
 }
 export async function getMerchantOrders(pool, merchantId, userId, limit=100) {
   if(!await getMerchantForOwner(pool,merchantId,userId))return null; const safe=Math.min(Math.max(Number(limit)||100,1),200);
