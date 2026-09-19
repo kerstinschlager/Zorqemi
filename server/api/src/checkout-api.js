@@ -36,17 +36,29 @@ export async function createCheckoutSession(pool, body) {
 
   const ids = [...new Set(items.map((item) => String(item?.product_id || '')).filter(Boolean))];
   const result = await pool.query(
-    `SELECT p.id, p.merchant_id, p.name, p.description, p.price, p.stock, p.active
+    `SELECT p.id, p.merchant_id, p.name, p.description, p.price, p.stock, p.active,
+            v.id AS variant_id, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock, v.active AS variant_active
        FROM products p JOIN merchants m ON m.id = p.merchant_id
+       LEFT JOIN product_variants v ON v.product_id=p.id
       WHERE p.id = ANY($1::uuid[]) AND p.active = true AND m.published = true`,
     [ids]
   );
-  const products = new Map(result.rows.map((row) => [String(row.id), row]));
+  const productRows = new Map();
+  for (const row of result.rows) {
+    const key=String(row.id);
+    if(!productRows.has(key))productRows.set(key,{product:row,variants:new Map()});
+    if(row.variant_id)productRows.get(key).variants.set(String(row.variant_id),row);
+  }
   const normalized = items.map((item) => {
-    const product = products.get(String(item.product_id));
-    const quantity = Number(item.quantity);
-    if (!product || !Number.isInteger(quantity) || quantity < 1 || quantity > 99 || quantity > product.stock) return null;
-    return { product, quantity };
+    const group=productRows.get(String(item.product_id));
+    const variantId=item?.variant_id?String(item.variant_id):'';
+    const variant=variantId?group?.variants.get(variantId):null;
+    const product=group?.product;
+    const quantity=Number(item.quantity);
+    const stock=variant?Number(variant.variant_stock):Number(product?.stock);
+    const price=variant?Number(variant.variant_price):Number(product?.price);
+    if (!product || (variantId && (!variant || variant.variant_active!==true)) || !Number.isInteger(quantity) || quantity<1 || quantity>99 || quantity>stock) return null;
+    return { product, variant:variant||null, quantity, stock, price };
   });
   if (normalized.some((item) => !item)) fail('product_unavailable', 409);
 
@@ -77,7 +89,7 @@ export async function createCheckoutSession(pool, body) {
     if (!currency) currency = merchantCurrency;
     if (merchantCurrency !== currency) fail('multi_currency_checkout_unsupported', 409);
 
-    const subtotal = group.reduce((sum, { product, quantity }) => sum + Number(product.price) * quantity, 0);
+    const subtotal = group.reduce((sum, { price, quantity }) => sum + Number(price) * quantity, 0);
     const shipping = settings.free_shipping_from != null && subtotal >= Number(settings.free_shipping_from)
       ? 0 : Number(settings.shipping_flat || 0);
     const tax = settings.vat_enabled ? (subtotal + shipping) * (Number(settings.vat_rate || 0) / 100) : 0;
@@ -103,13 +115,14 @@ export async function createCheckoutSession(pool, body) {
   const checkoutId = String(checkout.rows[0].id);
 
   const itemParams = [checkoutId];
-  const values = normalized.map(({ product, quantity }, index) => {
-    const base = index * 6 + 2;
-    itemParams.push(product.id, product.merchant_id, product.name, quantity, product.price, Number(product.price) * quantity);
-    return `($1,$${base},$${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5})`;
+  const values = normalized.map((entry, index) => {
+    const { product, variant, quantity, price } = entry;
+    const base = index * 7 + 2;
+    itemParams.push(product.id, variant?.variant_id || null, product.merchant_id, variant ? product.name+' – '+variant.variant_name : product.name, quantity, price, Number(price) * quantity);
+    return `($1,${base},${base + 1},${base + 2},${base + 3},${base + 4},${base + 5},${base + 6})`;
   });
   await pool.query(
-    `INSERT INTO checkout_items(checkout_session_id,product_id,merchant_id,product_name,quantity,unit_price,total) VALUES ${values.join(',')}`,
+    `INSERT INTO checkout_items(checkout_session_id,product_id,variant_id,merchant_id,product_name,quantity,unit_price,total) VALUES ${values.join(',')}`,
     itemParams
   );
 
@@ -125,11 +138,11 @@ export async function createCheckoutSession(pool, body) {
   );
 
   try {
-    const lineItems = normalized.map(({ product, quantity }) => ({
+    const lineItems = normalized.map(({ product, quantity, price, variant }) => ({
       quantity,
       price_data: {
         currency: String(currency || 'EUR').toLowerCase(),
-        unit_amount: money(product.price),
+        unit_amount: money(price),
         product_data: {
           name: product.name,
           description: product.description ? String(product.description).slice(0, 500) : undefined
@@ -241,10 +254,9 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
     if (!totals.rowCount) throw new Error('checkout_merchant_totals_missing');
 
     for (const item of items.rows) {
-      const stock = await client.query(
-        `UPDATE products SET stock=stock-$1,updated_at=now() WHERE id=$2 AND stock >= $1 RETURNING id`,
-        [item.quantity, item.product_id]
-      );
+      const stock = item.variant_id
+        ? await client.query(`UPDATE product_variants SET stock=stock-$1 WHERE id=$2 AND stock >= $1 AND active=true RETURNING id`,[item.quantity,item.variant_id])
+        : await client.query(`UPDATE products SET stock=stock-$1,updated_at=now() WHERE id=$2 AND stock >= $1 RETURNING id` ,[item.quantity,item.product_id]);
       if (!stock.rowCount) throw new Error('stock_unavailable');
     }
 
