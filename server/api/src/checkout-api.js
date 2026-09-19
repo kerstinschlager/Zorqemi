@@ -89,11 +89,16 @@ export async function createCheckoutSession(pool, body) {
   const tax = merchantTotals.reduce((sum, item) => sum + item.tax, 0);
   const total = merchantTotals.reduce((sum, item) => sum + item.total, 0);
   const shippingAddress = cleanAddress(body?.shipping_address);
+  const customerEmail = String(body?.customer_email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail) || customerEmail.length > 254) fail('invalid_customer_email', 400);
+  const customerResult = await pool.query('INSERT INTO customers(email) VALUES($1) ON CONFLICT (lower(email)) DO UPDATE SET updated_at=now() RETURNING id',[customerEmail]);
+  const customerId = customerResult.rows[0]?.id;
+  if (!customerId) fail('customer_unavailable', 500);
 
   const checkout = await pool.query(
-    `INSERT INTO checkout_sessions (merchant_id,status,currency,subtotal,shipping_total,tax_total,total,shipping_address,payment_provider,expires_at)
-     VALUES ($1,'payment_pending',$2,$3,$4,$5,$6,$7,'stripe',now()+interval '30 minutes') RETURNING id`,
-    [merchantIds.length === 1 ? merchantIds[0] : null, currency || 'EUR', subtotal, shipping, tax, total, shippingAddress]
+    `INSERT INTO checkout_sessions (merchant_id,customer_id,status,currency,subtotal,shipping_total,tax_total,total,shipping_address,payment_provider,expires_at)
+     VALUES ($1,$2,'payment_pending',$3,$4,$5,$6,$7,$8,'stripe',now()+interval '30 minutes') RETURNING id`,
+    [merchantIds.length === 1 ? merchantIds[0] : null, customerId, currency || 'EUR', subtotal, shipping, tax, total, shippingAddress]
   );
   const checkoutId = String(checkout.rows[0].id);
 
