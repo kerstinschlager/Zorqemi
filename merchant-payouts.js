@@ -5,7 +5,9 @@
     let panel=document.querySelector('#merchantPayoutPanel');
     if(!panel){panel=document.createElement('article');panel.id='merchantPayoutPanel';panel.className='panel';panel.innerHTML='<div class="panel-head"><h3>Auszahlungen</h3><span>Self-hosted</span></div><div id="merchantPayoutBody" class="muted">Lade …</div>';host.appendChild(panel);}
     try{
-      const data=await window.serverFetch('/merchant/'+encodeURIComponent(window.merchant.id)+'/payouts?limit=20');
+      const {response,payload}=await window.serverFetch('/merchant/'+encodeURIComponent(window.merchant.id)+'/payouts?limit=20');
+      if(!response.ok)throw new Error(payload?.error||'payouts_load_failed');
+      const data=payload;
       const b=data.balance||{};
       const rows=data.payouts||[];
       const money=n=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Number(n)||0);
