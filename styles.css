@@ -9,3 +9,5 @@
 .zq-product-detail select{width:100%;margin:8px 0 16px;padding:12px;border-radius:10px}
 .product[role="button"]{cursor:pointer}
 @media(max-width:700px){.zq-product-detail-grid{grid-template-columns:1fr}.zq-product-detail-image{max-height:360px;min-height:200px}}
+
+.product-variants-editor{display:grid;gap:10px;margin-top:4px}.variant-row{display:grid;grid-template-columns:minmax(150px,1.4fr) minmax(110px,1fr) minmax(90px,.7fr) minmax(80px,.6fr) auto;gap:8px;align-items:end;padding:12px;border:1px solid #ddd6e7;border-radius:12px;background:#fff}.variant-row label{font-size:11px!important}.variant-row input{width:100%;margin-top:4px}.variant-row .variant-active-wrap{display:flex;align-items:center;gap:6px;white-space:nowrap;height:42px}.variant-row .variant-active-wrap input{width:auto;margin:0}.variant-remove{border:1px solid #e0d8e8;background:#fff;border-radius:9px;padding:9px 11px;cursor:pointer;font-weight:800}.variant-remove:hover{border-color:#ff4fa3}@media(max-width:700px){.variant-row{grid-template-columns:1fr 1fr}.variant-row .variant-name{grid-column:1/-1}.variant-row .variant-remove{width:100%}}
