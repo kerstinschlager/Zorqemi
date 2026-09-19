@@ -85,10 +85,13 @@ app.get('/api/v1/shop/:merchantId',async(req,res,next)=>{try{const shop=await ge
 
 app.get('/api/v1/marketplace/products',async(_req,res,next)=>{try{const result=await pool.query(`
   SELECT p.id,p.merchant_id,p.name,p.description,p.price,p.stock,p.active,p.image_url,p.category,p.created_at,
-         m.name AS merchant_name,m.slug AS merchant_slug,m.shop_slug
+         m.name AS merchant_name,m.slug AS merchant_slug,m.shop_slug,
+         COALESCE(json_agg(json_build_object('id',v.id,'name',v.name,'sku',v.sku,'price',v.price,'stock',v.stock,'active',v.active) ORDER BY v.created_at) FILTER (WHERE v.id IS NOT NULL),'[]'::json) AS variants
     FROM products p
     JOIN merchants m ON m.id=p.merchant_id
+    LEFT JOIN product_variants v ON v.product_id=p.id AND v.active=true
    WHERE p.active=true AND m.published=true
+   GROUP BY p.id,m.name,m.slug,m.shop_slug
    ORDER BY p.created_at DESC
    LIMIT 500
 `);res.json({ok:true,products:result.rows});}catch(e){next(e);}});
