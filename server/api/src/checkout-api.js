@@ -4,15 +4,19 @@ function money(value) {
   return Math.round(Number(value) * 100);
 }
 
+const ALLOWED_SHIPPING_COUNTRIES = new Set(['DE', 'AT', 'NL', 'BE', 'FR', 'PL', 'CZ']);
+
 function cleanAddress(address) {
   if (!address || typeof address !== 'object') return null;
+  const country = String(address.country || 'DE').trim().toUpperCase().slice(0, 2);
+  if (!ALLOWED_SHIPPING_COUNTRIES.has(country)) fail('invalid_shipping_country', 400);
   return {
     name: String(address.name || '').trim().slice(0, 120),
     line1: String(address.line1 || '').trim().slice(0, 120),
     line2: String(address.line2 || '').trim().slice(0, 120),
     postal_code: String(address.postal_code || '').trim().slice(0, 20),
     city: String(address.city || '').trim().slice(0, 80),
-    country: String(address.country || 'DE').trim().toUpperCase().slice(0, 2)
+    country
   };
 }
 
@@ -20,6 +24,20 @@ function fail(message, status) {
   const error = new Error(message);
   error.status = status;
   throw error;
+}
+
+function safeCheckoutRedirect(value, fallback) {
+  if (!value) return fallback;
+  try {
+    const url = new URL(String(value));
+    if (url.protocol !== 'https:') return fallback;
+    const allowed = String(process.env.ZORQEMI_ALLOWED_CHECKOUT_ORIGINS || 'https://zorqemishop.de,https://www.zorqemishop.de,https://zorqemi.de,https://www.zorqemi.de')
+      .split(',').map((origin) => origin.trim().replace(/\/$/, '')).filter(Boolean);
+    if (!allowed.includes(url.origin)) return fallback;
+    return url.toString();
+  } catch {
+    return fallback;
+  }
 }
 
 export function getStripe() {
@@ -56,8 +74,8 @@ export async function createCheckoutSession(pool, body) {
     const product=group?.product;
     const quantity=Number(item.quantity);
     const stock=variant?Number(variant.variant_stock):Number(product?.stock);
-    const price=variant?Number(variant.variant_price):Number(product?.price);
-    if (!product || (variantId && (!variant || variant.variant_active!==true)) || !Number.isInteger(quantity) || quantity<1 || quantity>99 || quantity>stock) return null;
+    const price=variant && variant.variant_price !== null ? Number(variant.variant_price) : Number(product?.price);
+    if (!product || (variantId && (!variant || variant.variant_active!==true)) || !Number.isInteger(quantity) || quantity<1 || quantity>99 || quantity>stock || !Number.isFinite(price) || price<0) return null;
     return { product, variant:variant||null, quantity, stock, price };
   });
   if (normalized.some((item) => !item)) fail('product_unavailable', 409);
@@ -144,7 +162,7 @@ export async function createCheckoutSession(pool, body) {
         currency: String(currency || 'EUR').toLowerCase(),
         unit_amount: money(price),
         product_data: {
-          name: product.name,
+          name: variant ? product.name+' – '+variant.variant_name : product.name,
           description: product.description ? String(product.description).slice(0, 500) : undefined
         }
       }
@@ -173,10 +191,10 @@ export async function createCheckoutSession(pool, body) {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lineItems,
-      shipping_address_collection: { allowed_countries: ['DE', 'AT', 'NL', 'BE', 'FR', 'PL', 'CZ'] },
-      customer_email: body?.customer_email ? String(body.customer_email).trim().slice(0, 254) : undefined,
-      success_url: body?.success_url || 'https://zorqemishop.de/?checkout=success',
-      cancel_url: body?.cancel_url || 'https://zorqemishop.de/?checkout=cancelled',
+      shipping_address_collection: { allowed_countries: [...ALLOWED_SHIPPING_COUNTRIES] },
+      customer_email: customerEmail,
+      success_url: safeCheckoutRedirect(body?.success_url, 'https://zorqemishop.de/?checkout=success'),
+      cancel_url: safeCheckoutRedirect(body?.cancel_url, 'https://zorqemishop.de/?checkout=cancelled'),
       metadata: { zorqemi_checkout_id: checkoutId }
     });
     await pool.query('UPDATE checkout_sessions SET payment_reference=$1,updated_at=now() WHERE id=$2', [session.id, checkoutId]);
