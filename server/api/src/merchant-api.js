@@ -57,13 +57,14 @@ export async function updateMerchantProduct(pool, merchantId, userId, productId,
     const product=r.rows[0]; if(!product){await client.query('ROLLBACK');return null;}
     if(body.variants!==undefined){
       if(!Array.isArray(body.variants)){const x=new Error('invalid_variants');x.status=400;throw x;}
-      const seen=[]; const seenIds=new Set();
+      const seen=[]; const seenIds=new Set(); const seenSkus=new Set();
       for(const v of body.variants){
         const id=v?.id?String(v.id):null; if(id) requireUuid(id,'variant_id');
         const name=String(v?.name??'').trim(),sku=v?.sku==null?'':String(v.sku).trim();
         const price=v?.price===null||v?.price===undefined||v?.price===''?null:Number(v.price);
         const stock=Number(v?.stock??0);
         if(!name||name.length>200||sku.length>120||(price!==null&&(!Number.isFinite(price)||price<0))||!Number.isInteger(stock)||stock<0){const x=new Error('invalid_variants');x.status=400;throw x;}
+        if(sku){const key=sku.toLowerCase();if(seenSkus.has(key)){const x=new Error('duplicate_variant_sku');x.status=400;throw x;}seenSkus.add(key);}
         if(id){
           if(seenIds.has(id)){const x=new Error('duplicate_variant');x.status=400;throw x;} seenIds.add(id);
           const own=await client.query('SELECT id FROM product_variants WHERE id=$1 AND product_id=$2',[id,productId]);
