@@ -16,7 +16,7 @@ BEGIN
     RETURN NEW;
   ELSIF OLD.status = 'processing' AND NEW.status IN ('shipped','cancelled') THEN
     RETURN NEW;
-  ELSIF OLD.status = 'shipped' AND NEW.status = 'completed' THEN
+  ELSIF OLD.status = 'shipped' AND NEW.status IN ('completed') THEN
     RETURN NEW;
   END IF;
 
@@ -31,3 +31,7 @@ CREATE TRIGGER orders_status_transition_guard
 BEFORE UPDATE OF status ON orders
 FOR EACH ROW
 EXECUTE FUNCTION enforce_order_status_transition();
+
+INSERT INTO schema_migrations(version)
+VALUES ('0014_order_status_transitions')
+ON CONFLICT (version) DO NOTHING;
