@@ -14,16 +14,36 @@ Deno.serve(async req=>{
     const userClient=createClient(supabaseUrl,anonKey,{global:{headers:{Authorization:auth}}});
     const {data:userData}=await userClient.auth.getUser();if(!userData.user)return json({error:'Ungültige Sitzung'},401);
     const admin=createClient(supabaseUrl,serviceKey);
-    const orderQuery=await admin.from('orders').select('id,customer_id,payment_status').eq('stripe_checkout_session_id',session_id).maybeSingle();
+    const orderQuery=await admin.from('orders').select('id,customer_id,payment_status,status').eq('stripe_checkout_session_id',session_id).maybeSingle();
     if(orderQuery.error)throw orderQuery.error;
     if(!orderQuery.data||orderQuery.data.customer_id!==userData.user.id)return json({error:'Bestellung nicht gefunden'},404);
     const res=await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(session_id)}`,{headers:{Authorization:`Bearer ${key}`}});
     const session=await res.json();if(!res.ok)throw new Error(session?.error?.message||'Stripe-Fehler');
     const paid=session.payment_status==='paid';
-    if(paid){
+    let currentPaymentStatus=orderQuery.data.payment_status;
+    let currentStatus=orderQuery.data.status;
+    if(paid && ['pending','unpaid'].includes(currentPaymentStatus)){
       const pi=typeof session.payment_intent==='string'?session.payment_intent:null;
-      await admin.from('orders').update({payment_status:'paid',status:'paid',paid_at:new Date().toISOString(),stripe_payment_intent_id:pi}).eq('id',orderQuery.data.id);
+      const {data:updatedOrder,error:updateError}=await admin
+        .from('orders')
+        .update({payment_status:'paid',status:'paid',paid_at:new Date().toISOString(),stripe_payment_intent_id:pi})
+        .eq('id',orderQuery.data.id)
+        .in('payment_status',['pending','unpaid'])
+        .select('id')
+        .maybeSingle();
+      if(updateError)throw updateError;
+      if(updatedOrder){
+        const {error:consumeError}=await admin.rpc('consume_order_stock',{p_order_id:orderQuery.data.id});
+        if(consumeError)throw consumeError;
+        currentPaymentStatus='paid';
+        currentStatus='paid';
+      }else{
+        const latest=await admin.from('orders').select('payment_status,status').eq('id',orderQuery.data.id).single();
+        if(latest.error)throw latest.error;
+        currentPaymentStatus=latest.data.payment_status;
+        currentStatus=latest.data.status;
+      }
     }
-    return json({paid,order_id:orderQuery.data.id,payment_status:paid?'paid':orderQuery.data.payment_status});
+    return json({paid,order_id:orderQuery.data.id,payment_status:currentPaymentStatus,status:currentStatus});
   }catch(e){console.error(e);return json({error:e instanceof Error?e.message:'Unbekannter Fehler'},500)}
 });
