@@ -217,7 +217,34 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
 
   const isPaid = event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded';
   const isCancelled = event.type === 'checkout.session.async_payment_failed' || event.type === 'checkout.session.expired';
-  if (!isPaid && !isCancelled) return { received: true };
+  const isRefunded = event.type === 'charge.refunded';
+  if (!isPaid && !isCancelled && !isRefunded) return { received: true };
+
+  if (isRefunded) {
+    const paymentIntent = typeof session?.payment_intent === 'string' ? session.payment_intent : null;
+    if (!paymentIntent) return { received: true };
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const inserted = await client.query(
+        `INSERT INTO payment_events(provider,event_id,event_type,payload) VALUES ('stripe',$1,$2,$3)
+         ON CONFLICT (provider,event_id) DO NOTHING RETURNING id`,
+        [event.id, event.type, event]
+      );
+      if (!inserted.rowCount) { await client.query('COMMIT'); return { received: true, duplicate: true }; }
+      const result = await client.query(
+        `UPDATE orders SET status='refunded',updated_at=now()
+           WHERE stripe_payment_intent_id=$1 AND status <> 'refunded'
+           RETURNING id`,
+        [paymentIntent]
+      );
+      await client.query('COMMIT');
+      return { received: true, refunded_orders: result.rowCount };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
+  }
 
   const client = await pool.connect();
   try {
@@ -280,9 +307,9 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
 
     for (const merchantTotal of totals.rows) {
       const order = await client.query(
-        `INSERT INTO orders(merchant_id,customer_id,status,currency,subtotal,shipping_total,tax_total,total,shipping_address,payment_provider,payment_reference)
-         VALUES($1,$2,'paid',$3,$4,$5,$6,$7,$8,'stripe',$9) RETURNING id`,
-        [merchantTotal.merchant_id, checkout.customer_id, merchantTotal.currency, merchantTotal.subtotal, merchantTotal.shipping_total, merchantTotal.tax_total, merchantTotal.total, checkout.shipping_address, session.id]
+        `INSERT INTO orders(merchant_id,customer_id,status,currency,subtotal,shipping_total,tax_total,total,shipping_address,payment_provider,payment_reference,stripe_payment_intent_id)
+         VALUES($1,$2,'paid',$3,$4,$5,$6,$7,$8,'stripe',$9,$10) RETURNING id`,
+        [merchantTotal.merchant_id, checkout.customer_id, merchantTotal.currency, merchantTotal.subtotal, merchantTotal.shipping_total, merchantTotal.tax_total, merchantTotal.total, checkout.shipping_address, session.id, typeof session.payment_intent === 'string' ? session.payment_intent : null]
       );
       const merchantItems = items.rows.filter((item) => String(item.merchant_id) === String(merchantTotal.merchant_id));
       for (const item of merchantItems) {
