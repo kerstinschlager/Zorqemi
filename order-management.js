@@ -40,13 +40,14 @@
   function render(target, orders) {
     const root = document.querySelector(target);
     if (!root) return;
-    const active = orders.filter(o => !['new','cancelled'].includes(o.status));
+    const active = orders.filter(o => o.status !== 'cancelled');
     const counts = {
       all: active.length,
       paid: active.filter(o => o.status === 'paid').length,
       processing: active.filter(o => o.status === 'processing').length,
       shipped: active.filter(o => o.status === 'shipped').length,
-      completed: active.filter(o => o.status === 'completed').length
+      completed: active.filter(o => o.status === 'completed').length,
+      refunded: active.filter(o => o.status === 'refunded').length
     };
     root.innerHTML = `
       <div class="order-management-head">
@@ -60,6 +61,7 @@
           <option value="processing">In Bearbeitung (${counts.processing})</option>
           <option value="shipped">Versendet (${counts.shipped})</option>
           <option value="completed">Abgeschlossen (${counts.completed})</option>
+          <option value="refunded">Erstattet (${counts.refunded})</option>
         </select>
       </div>
       <div class="order-summary">
