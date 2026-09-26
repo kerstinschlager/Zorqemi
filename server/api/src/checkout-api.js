@@ -193,8 +193,8 @@ export async function createCheckoutSession(pool, body) {
       line_items: lineItems,
       shipping_address_collection: { allowed_countries: [...ALLOWED_SHIPPING_COUNTRIES] },
       customer_email: customerEmail,
-      success_url: safeCheckoutRedirect(body?.success_url, 'https://zorqemishop.de/?checkout=success'),
-      cancel_url: safeCheckoutRedirect(body?.cancel_url, 'https://zorqemishop.de/?checkout=cancelled'),
+      success_url: safeCheckoutRedirect(body?.success_url, 'https://zorqemishop.de/?payment=success&session_id={CHECKOUT_SESSION_ID}'),
+      cancel_url: safeCheckoutRedirect(body?.cancel_url, 'https://zorqemishop.de/?payment=cancelled'),
       metadata: { zorqemi_checkout_id: checkoutId }
     });
     await pool.query('UPDATE checkout_sessions SET payment_reference=$1,updated_at=now() WHERE id=$2', [session.id, checkoutId]);
