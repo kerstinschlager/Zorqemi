@@ -79,6 +79,23 @@ app.post('/api/v1/checkout/session', async (req,res,next) => {
   } catch (e) { next(e); }
 });
 
+app.get('/api/v1/checkout/session/:sessionId', async (req,res,next) => {
+  try {
+    const id = String(req.params.sessionId || '').trim();
+    if (!id || id.length > 100) return res.status(400).json({ok:false,error:'invalid_checkout_session'});
+    const result = await pool.query(
+      `SELECT id,status,currency,total,payment_provider,payment_reference,created_at,updated_at
+         FROM checkout_sessions
+        WHERE id=$1 OR payment_reference=$1
+        LIMIT 1`,
+      [id]
+    );
+    if (!result.rowCount) return res.status(404).json({ok:false,error:'checkout_session_not_found'});
+    const checkout = result.rows[0];
+    res.json({ok:true,checkout:{id:checkout.id,status:checkout.status,currency:checkout.currency,total:checkout.total,payment_provider:checkout.payment_provider,payment_reference:checkout.payment_reference,created_at:checkout.created_at,updated_at:checkout.updated_at}});
+  } catch (e) { next(e); }
+});
+
 app.get('/api/v1/shop',async(req,res,next)=>{try{const shop=await resolveShopByHost(pool,req.get('host'));if(!shop)return res.status(404).json({ok:false,error:'shop_not_found'});res.json({ok:true,shop});}catch(e){next(e);}});
 app.get('/api/v1/shop/products',async(req,res,next)=>{try{const shop=await resolveShopByHost(pool,req.get('host'));if(!shop)return res.status(404).json({ok:false,error:'shop_not_found'});const result=await pool.query(`SELECT p.id,p.name,p.description,p.price,p.stock,p.active,p.image_url,p.category,p.source_provider,p.source_product_id,p.created_at,COALESCE(json_agg(json_build_object('id',v.id,'name',v.name,'sku',v.sku,'price',v.price,'stock',v.stock,'active',v.active,'source_variant_id',v.source_variant_id) ORDER BY v.created_at) FILTER(WHERE v.id IS NOT NULL),'[]'::json) variants FROM products p LEFT JOIN product_variants v ON v.product_id=p.id WHERE p.merchant_id=$1 AND p.active=true GROUP BY p.id ORDER BY p.created_at DESC`,[shop.id]);res.json({ok:true,shop,products:result.rows});}catch(e){next(e);}});
 app.get('/api/v1/shop/:merchantId',async(req,res,next)=>{try{const shop=await getPublicShop(pool,req.params.merchantId);if(!shop)return res.status(404).json({ok:false,error:'shop_not_found'});res.json({ok:true,shop});}catch(e){next(e);}});
