@@ -213,7 +213,7 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
   const event = stripe.webhooks.constructEvent(rawBody, signature || '', secret);
   const session = event.data?.object;
   const checkoutId = session?.metadata?.zorqemi_checkout_id;
-  if (!checkoutId) return { received: true };
+  if (!checkoutId && event.type !== 'charge.refunded') return { received: true };
 
   const isPaid = event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded';
   const isCancelled = event.type === 'checkout.session.async_payment_failed' || event.type === 'checkout.session.expired';
