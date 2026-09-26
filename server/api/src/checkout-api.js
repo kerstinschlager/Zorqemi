@@ -286,6 +286,25 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
       throw Object.assign(new Error('payment_amount_mismatch'), { status: 400 });
     }
 
+    // Stripe is authoritative for the shipping address because Checkout collects it directly.
+    const shippingDetails = session.shipping_details;
+    const stripeAddress = shippingDetails?.address;
+    const stripeShippingAddress = stripeAddress ? cleanAddress({
+      name: shippingDetails?.name || session.customer_details?.name || '',
+      line1: stripeAddress.line1 || '',
+      line2: stripeAddress.line2 || '',
+      postal_code: stripeAddress.postal_code || '',
+      city: stripeAddress.city || '',
+      country: stripeAddress.country || 'DE'
+    }) : null;
+    if (stripeShippingAddress) {
+      await client.query(
+        'UPDATE checkout_sessions SET shipping_address=$1,updated_at=now() WHERE id=$2',
+        [stripeShippingAddress, checkoutId]
+      );
+      checkout.shipping_address = stripeShippingAddress;
+    }
+
     const items = await client.query(
       'SELECT * FROM checkout_items WHERE checkout_session_id=$1 ORDER BY created_at',
       [checkoutId]
