@@ -183,19 +183,22 @@ app.post('/api/v1/checkout/session', attachCustomer, async (req,res,next) => {
   } catch (e) { next(e); }
 });
 
-app.get('/api/v1/checkout/session/:sessionId', async (req,res,next) => {
+app.get('/api/v1/checkout/session/:sessionId', attachCustomer, async (req,res,next) => {
   try {
     const id = String(req.params.sessionId || '').trim();
     if (!id || id.length > 100) return res.status(400).json({ok:false,error:'invalid_checkout_session'});
     const result = await pool.query(
-      `SELECT id,status,currency,total,created_at,updated_at
+      `SELECT id,status,currency,total,created_at,updated_at,customer_id
          FROM checkout_sessions
-        WHERE id=$1 OR payment_reference=$1
+        WHERE (id=$1 OR payment_reference=$1)
         LIMIT 1`,
       [id]
     );
     if (!result.rowCount) return res.status(404).json({ok:false,error:'checkout_session_not_found'});
     const checkout = result.rows[0];
+    if (!req.customerUser?.id || String(req.customerUser.id) !== String(checkout.customer_id)) {
+      return res.status(403).json({ok:false,error:'checkout_access_denied'});
+    }
     res.json({ok:true,checkout:{id:checkout.id,status:checkout.status,currency:checkout.currency,total:checkout.total,created_at:checkout.created_at,updated_at:checkout.updated_at}});
   } catch (e) { next(e); }
 });
