@@ -526,6 +526,34 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
       }
     }
 
+    const settledReservations = await client.query(
+      `SELECT product_id,variant_id,quantity
+         FROM checkout_stock_reservations
+        WHERE checkout_session_id=$1 AND released_at IS NULL AND settled_at IS NULL
+        FOR UPDATE`,
+      [checkoutId]
+    );
+    for (const row of settledReservations.rows) {
+      if (row.variant_id) {
+        const stock = await client.query(
+          `UPDATE product_variants
+              SET stock=stock-$1,reserved_stock=GREATEST(0,reserved_stock-$1),updated_at=now()
+            WHERE id=$2 AND stock >= $1
+            RETURNING id`,
+          [row.quantity,row.variant_id]
+        );
+        if (!stock.rowCount) throw new Error('stock_settlement_failed');
+      } else {
+        const stock = await client.query(
+          `UPDATE products
+              SET stock=stock-$1,reserved_stock=GREATEST(0,reserved_stock-$1),updated_at=now()
+            WHERE id=$2 AND stock >= $1
+            RETURNING id`,
+          [row.quantity,row.product_id]
+        );
+        if (!stock.rowCount) throw new Error('stock_settlement_failed');
+      }
+    }
     await client.query(
       `UPDATE checkout_stock_reservations SET settled_at=now()
          WHERE checkout_session_id=$1 AND released_at IS NULL AND settled_at IS NULL`,
