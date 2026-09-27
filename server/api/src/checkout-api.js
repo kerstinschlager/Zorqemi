@@ -260,14 +260,18 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
 
   const checkoutAccessToken = createCheckoutAccessToken();
   const checkoutAccessTokenHash = hashCheckoutAccessToken(checkoutAccessToken);
+  const checkoutClient = await pool.connect();
   let checkout;
   try {
-    checkout = await pool.query(
+    await checkoutClient.query('BEGIN');
+    checkout = await checkoutClient.query(
       `INSERT INTO checkout_sessions (merchant_id,customer_id,status,currency,subtotal,shipping_total,tax_total,total,shipping_address,payment_provider,expires_at,idempotency_key,checkout_access_token_hash)
        VALUES ($1,$2,'payment_pending',$3,$4,$5,$6,$7,$8,'stripe',now()+interval '30 minutes',$9,$10) RETURNING id`,
       [merchantIds.length === 1 ? merchantIds[0] : null, customerId, currency || 'EUR', subtotal, shipping, tax, total, shippingAddress, idempotencyKey, checkoutAccessTokenHash]
     );
   } catch (error) {
+    await checkoutClient.query('ROLLBACK').catch(() => {});
+    checkoutClient.release();
     if (error?.code === '23505') fail('checkout_request_already_exists',409);
     throw error;
   }
@@ -280,7 +284,7 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
     itemParams.push(product.id, variant?.variant_id || null, product.merchant_id, variant ? product.name+' – '+variant.variant_name : product.name, quantity, price, Number(price) * quantity);
     return `($1,${base},${base + 1},${base + 2},${base + 3},${base + 4},${base + 5},${base + 6})`;
   });
-  await pool.query(
+  await checkoutClient.query(
     `INSERT INTO checkout_items(checkout_session_id,product_id,variant_id,merchant_id,product_name,quantity,unit_price,total) VALUES ${values.join(',')}`,
     itemParams
   );
@@ -291,40 +295,37 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
     merchantParams.push(item.merchantId, item.currency, item.subtotal, item.shipping, item.tax, item.total);
     return `($1,$${base},$${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5})`;
   });
-  await pool.query(
+  await checkoutClient.query(
     `INSERT INTO checkout_merchant_totals(checkout_session_id,merchant_id,currency,subtotal,shipping_total,tax_total,total) VALUES ${merchantValues.join(',')}`,
     [checkoutId, ...merchantParams]
   );
 
-  const reservationClient = await pool.connect();
   try {
-    await reservationClient.query('BEGIN');
     for (const entry of normalized) {
       const productId=entry.product.id;
       const variantId=entry.variant?.variant_id || null;
       const stockResult = variantId
-        ? await reservationClient.query(
+        ? await checkoutClient.query(
             `UPDATE product_variants SET reserved_stock=reserved_stock+$1,updated_at=now()
                WHERE id=$2 AND active=true AND stock-reserved_stock >= $1 RETURNING id`,
             [entry.quantity,variantId])
-        : await reservationClient.query(
+        : await checkoutClient.query(
             `UPDATE products SET reserved_stock=reserved_stock+$1,updated_at=now()
                WHERE id=$2 AND active=true AND stock-reserved_stock >= $1 RETURNING id`,
             [entry.quantity,productId]);
       if (!stockResult.rowCount) fail('stock_unavailable',409);
-      await reservationClient.query(
+      await checkoutClient.query(
         `INSERT INTO checkout_stock_reservations(checkout_session_id,product_id,variant_id,quantity)
          VALUES($1,$2,$3,$4)`,
         [checkoutId,productId,variantId,entry.quantity]
       );
     }
-    await reservationClient.query('COMMIT');
+    await checkoutClient.query('COMMIT');
+    checkoutClient.release();
   } catch(error) {
-    await reservationClient.query('ROLLBACK');
-    await pool.query(`UPDATE checkout_sessions SET status='cancelled',updated_at=now() WHERE id=$1`,[checkoutId]);
+    await checkoutClient.query('ROLLBACK').catch(() => {});
+    checkoutClient.release();
     throw error;
-  } finally {
-    try { reservationClient.release(); } catch {}
   }
 
   try {
