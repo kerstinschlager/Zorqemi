@@ -45,6 +45,34 @@ export function getStripe() {
   return key ? new Stripe(key) : null;
 }
 
+async function releaseCheckoutStock(pool, checkoutId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const rows = await client.query(
+      `SELECT product_id,variant_id,quantity
+         FROM checkout_stock_reservations
+        WHERE checkout_session_id=$1 AND released_at IS NULL AND settled_at IS NULL
+        FOR UPDATE`,
+      [checkoutId]
+    );
+    for (const row of rows.rows) {
+      if (row.variant_id) {
+        await client.query('UPDATE product_variants SET stock=stock+$1,updated_at=now() WHERE id=$2',[row.quantity,row.variant_id]);
+      } else {
+        await client.query('UPDATE products SET stock=stock+$1,updated_at=now() WHERE id=$2',[row.quantity,row.product_id]);
+      }
+    }
+    await client.query(
+      `UPDATE checkout_stock_reservations SET released_at=now()
+         WHERE checkout_session_id=$1 AND released_at IS NULL AND settled_at IS NULL`,
+      [checkoutId]
+    );
+    await client.query(`UPDATE checkout_sessions SET status='cancelled',updated_at=now() WHERE id=$1 AND status<>'paid'`,[checkoutId]);
+    await client.query('COMMIT');
+  } catch(e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+}
+
 export async function createCheckoutSession(pool, body, authenticatedCustomer = null) {
   const stripe = getStripe();
   if (!stripe) fail('stripe_not_configured', 503);
@@ -169,6 +197,38 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
     [checkoutId, ...merchantParams]
   );
 
+  const reservationClient = await pool.connect();
+  try {
+    await reservationClient.query('BEGIN');
+    for (const entry of normalized) {
+      const productId=entry.product.id;
+      const variantId=entry.variant?.variant_id || null;
+      const stockResult = variantId
+        ? await reservationClient.query(
+            `UPDATE product_variants SET stock=stock-$1,updated_at=now()
+               WHERE id=$2 AND active=true AND stock >= $1 RETURNING id`,
+            [entry.quantity,variantId])
+        : await reservationClient.query(
+            `UPDATE products SET stock=stock-$1,updated_at=now()
+               WHERE id=$2 AND active=true AND stock >= $1 RETURNING id`,
+            [entry.quantity,productId]);
+      if (!stockResult.rowCount) fail('stock_unavailable',409);
+      await reservationClient.query(
+        `INSERT INTO checkout_stock_reservations(checkout_session_id,product_id,variant_id,quantity)
+         VALUES($1,$2,$3,$4)`,
+        [checkoutId,productId,variantId,entry.quantity]
+      );
+    }
+    await reservationClient.query('COMMIT');
+  } catch(error) {
+    await reservationClient.query('ROLLBACK');
+    await reservationClient.release();
+    await pool.query(`UPDATE checkout_sessions SET status='cancelled',updated_at=now() WHERE id=$1`,[checkoutId]);
+    throw error;
+  } finally {
+    try { reservationClient.release(); } catch {}
+  }
+
   try {
     const lineItems = normalized.map(({ product, quantity, price, variant }) => ({
       quantity,
@@ -214,7 +274,7 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
     await pool.query('UPDATE checkout_sessions SET payment_reference=$1,updated_at=now() WHERE id=$2', [session.id, checkoutId]);
     return { id: checkoutId, url: session.url, stripe_session_id: session.id, total, currency: currency || 'EUR' };
   } catch (error) {
-    await pool.query(`UPDATE checkout_sessions SET status='cancelled',updated_at=now() WHERE id=$1`, [checkoutId]);
+    await releaseCheckoutStock(pool, checkoutId);
     throw error;
   }
 }
@@ -282,6 +342,21 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
 
     if (isCancelled) {
       if (checkout.status !== 'paid') {
+        const reservations = await client.query(
+          `SELECT product_id,variant_id,quantity FROM checkout_stock_reservations
+             WHERE checkout_session_id=$1 AND released_at IS NULL AND settled_at IS NULL
+             FOR UPDATE`,
+          [checkoutId]
+        );
+        for (const row of reservations.rows) {
+          if (row.variant_id) await client.query('UPDATE product_variants SET stock=stock+$1,updated_at=now() WHERE id=$2',[row.quantity,row.variant_id]);
+          else await client.query('UPDATE products SET stock=stock+$1,updated_at=now() WHERE id=$2',[row.quantity,row.product_id]);
+        }
+        await client.query(
+          `UPDATE checkout_stock_reservations SET released_at=now()
+             WHERE checkout_session_id=$1 AND released_at IS NULL AND settled_at IS NULL`,
+          [checkoutId]
+        );
         await client.query(`UPDATE checkout_sessions SET status='cancelled',updated_at=now() WHERE id=$1`, [checkoutId]);
       }
       await client.query('COMMIT');
@@ -331,12 +406,12 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
     );
     if (!totals.rowCount) throw new Error('checkout_merchant_totals_missing');
 
-    for (const item of items.rows) {
-      const stock = item.variant_id
-        ? await client.query(`UPDATE product_variants SET stock=stock-$1 WHERE id=$2 AND stock >= $1 AND active=true RETURNING id`,[item.quantity,item.variant_id])
-        : await client.query(`UPDATE products SET stock=stock-$1,updated_at=now() WHERE id=$2 AND stock >= $1 RETURNING id` ,[item.quantity,item.product_id]);
-      if (!stock.rowCount) throw new Error('stock_unavailable');
-    }
+    const reservationCheck = await client.query(
+      `SELECT count(*)::int AS count FROM checkout_stock_reservations
+         WHERE checkout_session_id=$1 AND released_at IS NULL AND settled_at IS NULL`,
+      [checkoutId]
+    );
+    if (Number(reservationCheck.rows[0]?.count || 0) !== items.rowCount) throw new Error('stock_reservation_missing');
 
     for (const merchantTotal of totals.rows) {
       const order = await client.query(
@@ -353,6 +428,11 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
       }
     }
 
+    await client.query(
+      `UPDATE checkout_stock_reservations SET settled_at=now()
+         WHERE checkout_session_id=$1 AND released_at IS NULL AND settled_at IS NULL`,
+      [checkoutId]
+    );
     await client.query(
       `UPDATE checkout_sessions SET status='paid',payment_provider='stripe',payment_reference=$1,updated_at=now() WHERE id=$2`,
       [session.id, checkoutId]
