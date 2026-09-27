@@ -173,8 +173,8 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
 
   const ids = [...new Set(items.map((item) => String(item?.product_id || '')).filter(Boolean))];
   const result = await pool.query(
-    `SELECT p.id, p.merchant_id, p.name, p.description, p.price, p.stock, p.active,
-            v.id AS variant_id, v.name AS variant_name, v.price AS variant_price, v.stock AS variant_stock, v.active AS variant_active
+    `SELECT p.id, p.merchant_id, p.name, p.description, p.price, GREATEST(0,p.stock-p.reserved_stock) AS stock, p.active,
+            v.id AS variant_id, v.name AS variant_name, v.price AS variant_price, GREATEST(0,v.stock-v.reserved_stock) AS variant_stock, v.active AS variant_active
        FROM products p JOIN merchants m ON m.id = p.merchant_id
        LEFT JOIN product_variants v ON v.product_id=p.id
       WHERE p.id = ANY($1::uuid[]) AND p.active = true AND m.published = true`,
