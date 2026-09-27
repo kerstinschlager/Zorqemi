@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import crypto from 'node:crypto';
 
 function money(value) {
   return Math.round(Number(value) * 100);
@@ -38,6 +39,13 @@ function safeCheckoutRedirect(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function createCheckoutAccessToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+function hashCheckoutAccessToken(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
 export function getStripe() {
@@ -143,7 +151,7 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
   const idempotencyKey = String(body?.idempotency_key || '').trim();
   if (!/^[A-Za-z0-9._:-]{16,100}$/.test(idempotencyKey)) fail('invalid_idempotency_key',400);
   const existing = await pool.query(
-    `SELECT id,status,total,currency,payment_reference,expires_at
+    `SELECT id,status,total,currency,payment_reference,expires_at,checkout_access_token_hash
        FROM checkout_sessions
       WHERE idempotency_key=$1
       LIMIT 1`,
@@ -154,10 +162,10 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
     if (row.payment_reference && row.status==='payment_pending') {
       try {
         const existingStripe=await stripe.checkout.sessions.retrieve(row.payment_reference);
-        return { id:String(row.id), url:existingStripe.url, stripe_session_id:row.payment_reference, total:Number(row.total), currency:row.currency };
+        return { id:String(row.id), url:existingStripe.url, stripe_session_id:row.payment_reference, total:Number(row.total), currency:row.currency, checkout_access_token: null };
       } catch {}
     }
-    if (row.status==='paid') return { id:String(row.id), url:null, stripe_session_id:row.payment_reference, total:Number(row.total), currency:row.currency };
+    if (row.status==='paid') return { id:String(row.id), url:null, stripe_session_id:row.payment_reference, total:Number(row.total), currency:row.currency, checkout_access_token: null };
     fail('checkout_request_already_exists',409);
   }
   const items = Array.isArray(body?.items) ? body.items : [];
@@ -250,12 +258,14 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
   }
   if (!customerId || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) fail('customer_unavailable', 500);
 
+  const checkoutAccessToken = createCheckoutAccessToken();
+  const checkoutAccessTokenHash = hashCheckoutAccessToken(checkoutAccessToken);
   let checkout;
   try {
     checkout = await pool.query(
-      `INSERT INTO checkout_sessions (merchant_id,customer_id,status,currency,subtotal,shipping_total,tax_total,total,shipping_address,payment_provider,expires_at,idempotency_key)
-       VALUES ($1,$2,'payment_pending',$3,$4,$5,$6,$7,$8,'stripe',now()+interval '30 minutes',$9) RETURNING id`,
-      [merchantIds.length === 1 ? merchantIds[0] : null, customerId, currency || 'EUR', subtotal, shipping, tax, total, shippingAddress, idempotencyKey]
+      `INSERT INTO checkout_sessions (merchant_id,customer_id,status,currency,subtotal,shipping_total,tax_total,total,shipping_address,payment_provider,expires_at,idempotency_key,checkout_access_token_hash)
+       VALUES ($1,$2,'payment_pending',$3,$4,$5,$6,$7,$8,'stripe',now()+interval '30 minutes',$9,$10) RETURNING id`,
+      [merchantIds.length === 1 ? merchantIds[0] : null, customerId, currency || 'EUR', subtotal, shipping, tax, total, shippingAddress, idempotencyKey, checkoutAccessTokenHash]
     );
   } catch (error) {
     if (error?.code === '23505') fail('checkout_request_already_exists',409);
@@ -360,7 +370,7 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
       metadata: { zorqemi_checkout_id: checkoutId }
     });
     await pool.query('UPDATE checkout_sessions SET payment_reference=$1,updated_at=now() WHERE id=$2', [session.id, checkoutId]);
-    return { id: checkoutId, url: session.url, stripe_session_id: session.id, total, currency: currency || 'EUR' };
+    return { id: checkoutId, url: session.url, stripe_session_id: session.id, total, currency: currency || 'EUR', checkout_access_token: checkoutAccessToken };
   } catch (error) {
     await releaseCheckoutStock(pool, checkoutId);
     throw error;
