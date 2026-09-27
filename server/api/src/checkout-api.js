@@ -140,6 +140,26 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
   const stripe = getStripe();
   if (!stripe) fail('stripe_not_configured', 503);
 
+  const idempotencyKey = String(body?.idempotency_key || '').trim();
+  if (!/^[A-Za-z0-9._:-]{16,100}$/.test(idempotencyKey)) fail('invalid_idempotency_key',400);
+  const existing = await pool.query(
+    `SELECT id,status,total,currency,payment_reference,expires_at
+       FROM checkout_sessions
+      WHERE idempotency_key=$1
+      LIMIT 1`,
+    [idempotencyKey]
+  );
+  if (existing.rowCount) {
+    const row=existing.rows[0];
+    if (row.payment_reference && row.status==='payment_pending') {
+      try {
+        const existingStripe=await stripe.checkout.sessions.retrieve(row.payment_reference);
+        return { id:String(row.id), url:existingStripe.url, stripe_session_id:row.payment_reference, total:Number(row.total), currency:row.currency };
+      } catch {}
+    }
+    if (row.status==='paid') return { id:String(row.id), url:null, stripe_session_id:row.payment_reference, total:Number(row.total), currency:row.currency };
+    fail('checkout_request_already_exists',409);
+  }
   const items = Array.isArray(body?.items) ? body.items : [];
   if (!items.length || items.length > 100) fail('invalid_checkout_items', 400);
 
@@ -230,11 +250,17 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
   }
   if (!customerId || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) fail('customer_unavailable', 500);
 
-  const checkout = await pool.query(
-    `INSERT INTO checkout_sessions (merchant_id,customer_id,status,currency,subtotal,shipping_total,tax_total,total,shipping_address,payment_provider,expires_at)
-     VALUES ($1,$2,'payment_pending',$3,$4,$5,$6,$7,$8,'stripe',now()+interval '30 minutes') RETURNING id`,
-    [merchantIds.length === 1 ? merchantIds[0] : null, customerId, currency || 'EUR', subtotal, shipping, tax, total, shippingAddress]
-  );
+  let checkout;
+  try {
+    checkout = await pool.query(
+      `INSERT INTO checkout_sessions (merchant_id,customer_id,status,currency,subtotal,shipping_total,tax_total,total,shipping_address,payment_provider,expires_at,idempotency_key)
+       VALUES ($1,$2,'payment_pending',$3,$4,$5,$6,$7,$8,'stripe',now()+interval '30 minutes',$9) RETURNING id`,
+      [merchantIds.length === 1 ? merchantIds[0] : null, customerId, currency || 'EUR', subtotal, shipping, tax, total, shippingAddress, idempotencyKey]
+    );
+  } catch (error) {
+    if (error?.code === '23505') fail('checkout_request_already_exists',409);
+    throw error;
+  }
   const checkoutId = String(checkout.rows[0].id);
 
   const itemParams = [checkoutId];
