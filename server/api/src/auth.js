@@ -26,10 +26,6 @@ export async function logoutMerchant(pool,req,res) { const token=requestToken(re
 export async function requireMerchant(req,res,next) { try{const user=await getMerchantFromRequest(req.app.locals.pool,req);if(!user)return res.status(401).json({ok:false,error:'authentication_required'});req.merchantUser=user;next();}catch(e){next(e);} }
 export function hashMerchantPassword(password){return hashPassword(password);} export function verifyMerchantPassword(password,encoded){return verifyPassword(password,encoded);}
 
-export async function createCustomerSession(pool,customerId){const token=createSessionToken();await pool.query(`INSERT INTO customer_sessions(customer_id,token_hash,expires_at) VALUES($1,$2,now()+interval '${SESSION_DAYS} days')`,[customerId,hashToken(token)]);return token;}
-export async function getCustomerFromRequest(pool,req){const header=req.get('authorization')||'';if(!header.startsWith('Bearer '))return null;const token=header.slice(7).trim();if(!/^[a-f0-9]{64}$/i.test(token))return null;const r=await pool.query(`SELECT c.id,c.email,c.first_name,c.last_name FROM customer_sessions s JOIN customers c ON c.id=s.customer_id WHERE s.token_hash=$1 AND s.expires_at>now() LIMIT 1`,[hashToken(token)]);return r.rows[0]??null;}
-
-
 const CUSTOMER_COOKIE_NAME = 'zq_customer_session';
 
 function customerRequestToken(req) {
