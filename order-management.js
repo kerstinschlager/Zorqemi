@@ -37,6 +37,13 @@
     return ({new:'Offen', paid:'Bezahlt', processing:'In Bearbeitung', shipped:'Versendet', completed:'Abgeschlossen', cancelled:'Storniert', refunded:'Erstattet'})[s] || s;
   }
 
+  function shippingAddressLabel(address) {
+    if (!address) return '';
+    if (typeof address === 'string') return esc(address);
+    const parts = [address.name, address.line1, address.line2, [address.postal_code, address.city].filter(Boolean).join(' '), address.country].filter(Boolean).map(esc);
+    return parts.length ? '<div class="muted rk-customer-address"><strong>Lieferadresse:</strong> '+parts.join('<br>')+'</div>' : '';
+  }
+
   function render(target, orders) {
     const root = document.querySelector(target);
     if (!root) return;
@@ -76,7 +83,7 @@
       const shown = value === 'all' ? active : active.filter(o => o.status === value);
       list.innerHTML = shown.map(o => {
         const merchantTotal = o.items.reduce((s,i) => s + Number(i.unit_price) * Number(i.quantity), 0);
-        return `<div class="order-row rk-order-card"><div><strong>Bestellung #${o.id}</strong><div class="muted">${new Date(o.created_at).toLocaleString('de-DE')} · ${o.items.map(i => `${esc(i.product_name)} × ${i.quantity}`).join(', ')}</div><div class="rk-shipping"><label>Status<select ${o.status==='refunded'?'disabled':''} onchange="changeOrderStatus('${o.id}',this.value)"><option value="paid" ${o.status==='paid'?'selected':''}>Bezahlt</option><option value="processing" ${o.status==='processing'?'selected':''}>In Bearbeitung</option><option value="shipped" ${o.status==='shipped'?'selected':''}>Versendet</option><option value="completed" ${o.status==='completed'?'selected':''}>Abgeschlossen</option><option value="cancelled" ${o.status==='cancelled'?'selected':''}>Storniert</option></select></label><label>Versanddienstleister<input id="carrier-${o.id}" value="${esc(o.shipping_carrier||'')}" placeholder="z. B. DHL"></label><label>Sendungsnummer<input id="tracking-${o.id}" value="${esc(o.tracking_number||'')}" placeholder="Sendungsnummer"></label><label>Tracking-Link<input id="tracking-url-${o.id}" value="${esc(o.tracking_url||'')}" placeholder="https://…"></label><button class="secondary" type="button" onclick="saveShipping('${o.id}')">Versanddaten speichern</button>${o.shipped_at?`<span class="muted">Versendet am ${new Date(o.shipped_at).toLocaleDateString('de-DE')}</span>`:''}</div></div><div><strong>${money(merchantTotal)}</strong><div class="muted">${statusLabel(o.status)}</div></div></div>`;
+        return `<div class="order-row rk-order-card"><div><strong>Bestellung #${o.id}</strong><div class="muted">${new Date(o.created_at).toLocaleString('de-DE')} · ${o.items.map(i => `${esc(i.product_name)} × ${i.quantity}`).join(', ')}</div>${shippingAddressLabel(o.shipping_address)}<div class="rk-shipping"><label>Status<select ${o.status==='refunded'?'disabled':''} onchange="changeOrderStatus('${o.id}',this.value)"><option value="paid" ${o.status==='paid'?'selected':''}>Bezahlt</option><option value="processing" ${o.status==='processing'?'selected':''}>In Bearbeitung</option><option value="shipped" ${o.status==='shipped'?'selected':''}>Versendet</option><option value="completed" ${o.status==='completed'?'selected':''}>Abgeschlossen</option><option value="cancelled" ${o.status==='cancelled'?'selected':''}>Storniert</option></select></label><label>Versanddienstleister<input id="carrier-${o.id}" value="${esc(o.shipping_carrier||'')}" placeholder="z. B. DHL"></label><label>Sendungsnummer<input id="tracking-${o.id}" value="${esc(o.tracking_number||'')}" placeholder="Sendungsnummer"></label><label>Tracking-Link<input id="tracking-url-${o.id}" value="${esc(o.tracking_url||'')}" placeholder="https://…"></label><button class="secondary" type="button" onclick="saveShipping('${o.id}')">Versanddaten speichern</button>${o.shipped_at?`<span class="muted">Versendet am ${new Date(o.shipped_at).toLocaleDateString('de-DE')}</span>`:''}</div></div><div><strong>${money(merchantTotal)}</strong><div class="muted">${statusLabel(o.status)}</div></div></div>`;
       }).join('') || '<p class="muted">Keine passenden Bestellungen.</p>';
     };
     filter.onchange = draw;
@@ -158,6 +165,6 @@
   }
 
   const shippingStyle=document.createElement('style');
-  shippingStyle.textContent='.rk-order-card{align-items:flex-start}.rk-shipping{margin-top:12px;display:grid;grid-template-columns:repeat(2,minmax(180px,1fr));gap:10px}.rk-shipping label{display:flex;flex-direction:column;gap:5px;font-size:13px}.rk-shipping input,.rk-shipping select{padding:9px;border:1px solid #d9d3e5;border-radius:8px;background:#fff}.rk-shipping button{align-self:end}.rk-shipping .muted{align-self:center}@media(max-width:800px){.rk-shipping{grid-template-columns:1fr}}';
+  shippingStyle.textContent='.rk-order-card{align-items:flex-start}.rk-customer-address{margin-top:8px;line-height:1.45}.rk-shipping{margin-top:12px;display:grid;grid-template-columns:repeat(2,minmax(180px,1fr));gap:10px}.rk-shipping label{display:flex;flex-direction:column;gap:5px;font-size:13px}.rk-shipping input,.rk-shipping select{padding:9px;border:1px solid #d9d3e5;border-radius:8px;background:#fff}.rk-shipping button{align-self:end}.rk-shipping .muted{align-self:center}@media(max-width:800px){.rk-shipping{grid-template-columns:1fr}}';
   document.head.appendChild(shippingStyle);
 })();
