@@ -277,7 +277,8 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
   }
   const checkoutId = String(checkout.rows[0].id);
 
-  const itemParams = [checkoutId];
+  try {
+    const itemParams = [checkoutId];
   const values = normalized.map((entry, index) => {
     const { product, variant, quantity, price } = entry;
     const base = index * 7 + 2;
@@ -300,7 +301,6 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
     [checkoutId, ...merchantParams]
   );
 
-  try {
     for (const entry of normalized) {
       const productId=entry.product.id;
       const variantId=entry.variant?.variant_id || null;
