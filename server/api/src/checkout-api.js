@@ -166,6 +166,10 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
       } catch {}
     }
     if (row.status==='paid') return { id:String(row.id), url:null, stripe_session_id:row.payment_reference, total:Number(row.total), currency:row.currency, checkout_access_token: null };
+    if (row.status==='cancelled' || row.status==='expired') {
+      // A previous attempt with the same idempotency key is terminal; require a new key.
+      fail('checkout_request_already_exists',409);
+    }
     fail('checkout_request_already_exists',409);
   }
   const items = Array.isArray(body?.items) ? body.items : [];
