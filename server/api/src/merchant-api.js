@@ -89,8 +89,25 @@ export async function getMerchantOrders(pool, merchantId, userId, limit=100) {
 }
 
 export async function updateMerchantOrder(pool, merchantId, userId, orderId, status) {
-  requireUuid(orderId,'order_id'); const allowed=new Set(['new','paid','processing','shipped','completed','cancelled']); if(!allowed.has(status)){const e=new Error('invalid_status');e.status=400;throw e;} if(!await getMerchantForOwner(pool,merchantId,userId))return null;
-  const r=await pool.query(`UPDATE orders SET status=$1,updated_at=now() WHERE id=$2 AND (merchant_id=$3 OR EXISTS(SELECT 1 FROM order_items oi WHERE oi.order_id=orders.id AND oi.merchant_id=$3)) AND status NOT IN('completed','cancelled') RETURNING *`,[status,orderId,merchantId]); return r.rows[0]??null;
+  requireUuid(orderId,'order_id');
+  const allowed=new Set(['new','paid','processing','shipped','completed','cancelled']);
+  if(!allowed.has(status)){const e=new Error('invalid_status');e.status=400;throw e;}
+  if(!await getMerchantForOwner(pool,merchantId,userId))return null;
+  const r=await pool.query(
+    `UPDATE orders SET status=$1,updated_at=now()
+       WHERE id=$2
+         AND (merchant_id=$3 OR EXISTS(SELECT 1 FROM order_items oi WHERE oi.order_id=orders.id AND oi.merchant_id=$3))
+         AND status NOT IN('completed','cancelled')
+         AND (
+           status=$1
+           OR (status IN('new','paid') AND $1 IN('processing','cancelled'))
+           OR (status='processing' AND $1 IN('shipped','cancelled'))
+           OR (status='shipped' AND $1='completed')
+         )
+       RETURNING *`,
+    [status,orderId,merchantId]
+  );
+  return r.rows[0]??null;
 }
 
 export async function getShopSettings(pool, merchantId, userId) { if(!await getMerchantForOwner(pool,merchantId,userId))return null; const r=await pool.query('SELECT * FROM shop_settings WHERE merchant_id=$1',[merchantId]); if(r.rows[0])return r.rows[0]; const c=await pool.query('INSERT INTO shop_settings(merchant_id) VALUES($1) RETURNING *',[merchantId]); return c.rows[0]; }
@@ -104,7 +121,18 @@ export async function updateMerchantShipping(pool, merchantId, userId, orderId, 
   const tracking=body?.tracking_number==null?null:String(body.tracking_number).trim();
   const trackingUrl=body?.tracking_url==null?null:String(body.tracking_url).trim();
   if(carrier?.length>120||tracking?.length>200||trackingUrl?.length>2000||(trackingUrl&&!/^https?:\/\//i.test(trackingUrl))){const e=new Error('invalid_shipping');e.status=400;throw e;}
-  const r=await pool.query(`UPDATE orders SET shipping_carrier=$1,tracking_number=$2,tracking_url=$3,shipped_at=CASE WHEN $2 IS NOT NULL OR $3 IS NOT NULL THEN COALESCE(shipped_at,now()) ELSE shipped_at END,updated_at=now() WHERE id=$4 AND (merchant_id=$5 OR EXISTS(SELECT 1 FROM order_items oi WHERE oi.order_id=orders.id AND oi.merchant_id=$5)) RETURNING *`,[carrier||null,tracking||null,trackingUrl||null,orderId,merchantId]);
+  const r=await pool.query(
+    `UPDATE orders SET
+       shipping_carrier=$1,tracking_number=$2,tracking_url=$3,
+       shipped_at=CASE WHEN $2 IS NOT NULL OR $3 IS NOT NULL THEN COALESCE(shipped_at,now()) ELSE shipped_at END,
+       status=CASE WHEN ($2 IS NOT NULL OR $3 IS NOT NULL) AND status IN('paid','processing') THEN 'shipped' ELSE status END,
+       updated_at=now()
+       WHERE id=$4
+         AND (merchant_id=$5 OR EXISTS(SELECT 1 FROM order_items oi WHERE oi.order_id=orders.id AND oi.merchant_id=$5))
+         AND status NOT IN('completed','cancelled')
+       RETURNING *`,
+    [carrier||null,tracking||null,trackingUrl||null,orderId,merchantId]
+  );
   return r.rows[0]??null;
 }
 
