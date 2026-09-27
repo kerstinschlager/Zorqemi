@@ -73,6 +73,69 @@ async function releaseCheckoutStock(pool, checkoutId) {
   } catch(e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
 }
 
+export async function releaseExpiredCheckoutReservations(pool) {
+  const client = await pool.connect();
+  let released = 0;
+  try {
+    await client.query('BEGIN');
+    const checkouts = await client.query(
+      `SELECT id
+         FROM checkout_sessions
+        WHERE status='payment_pending'
+          AND expires_at IS NOT NULL
+          AND expires_at <= now()
+        FOR UPDATE SKIP LOCKED
+        LIMIT 100`
+    );
+    for (const checkout of checkouts.rows) {
+      const reservations = await client.query(
+        `SELECT product_id,variant_id,quantity
+           FROM checkout_stock_reservations
+          WHERE checkout_session_id=$1
+            AND released_at IS NULL
+            AND settled_at IS NULL
+          FOR UPDATE`,
+        [checkout.id]
+      );
+      for (const row of reservations.rows) {
+        if (row.variant_id) {
+          await client.query(
+            'UPDATE product_variants SET stock=stock+$1,updated_at=now() WHERE id=$2',
+            [row.quantity,row.variant_id]
+          );
+        } else {
+          await client.query(
+            'UPDATE products SET stock=stock+$1,updated_at=now() WHERE id=$2',
+            [row.quantity,row.product_id]
+          );
+        }
+      }
+      await client.query(
+        `UPDATE checkout_stock_reservations
+            SET released_at=now()
+          WHERE checkout_session_id=$1
+            AND released_at IS NULL
+            AND settled_at IS NULL`,
+        [checkout.id]
+      );
+      await client.query(
+        `UPDATE checkout_sessions
+            SET status='expired',updated_at=now()
+          WHERE id=$1 AND status='payment_pending'`,
+        [checkout.id]
+      );
+      released += reservations.rowCount;
+    }
+    await client.query('COMMIT');
+    return { checkouts: checkouts.rowCount, reservations: released };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function createCheckoutSession(pool, body, authenticatedCustomer = null) {
   const stripe = getStripe();
   if (!stripe) fail('stripe_not_configured', 503);
