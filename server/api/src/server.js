@@ -166,9 +166,9 @@ app.patch('/api/v1/cart/items/:itemId',attachCustomer,async(req,res,next)=>{try{
 app.delete('/api/v1/cart/items/:itemId',attachCustomer,async(req,res,next)=>{try{res.json({ok:true,...await removeCartItem(pool,req,req.params.itemId)});}catch(e){next(e);}});
 
 // Public checkout: prices and stock are always read from PostgreSQL; client totals are ignored.
-app.post('/api/v1/checkout/session', async (req,res,next) => {
+app.post('/api/v1/checkout/session', attachCustomer, async (req,res,next) => {
   try {
-    const result = await createCheckoutSession(pool, req.body || {});
+    const result = await createCheckoutSession(pool, req.body || {}, req.customerUser || null);
     res.status(201).json({ ok: true, checkout: result });
   } catch (e) { next(e); }
 });
