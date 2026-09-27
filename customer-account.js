@@ -17,8 +17,14 @@
     q('#markNotificationsRead').addEventListener('click',markNotificationsRead);
     renderWishlist();
   }
+  async function api(path,options={}){
+    const r=await fetch(path,{credentials:'include',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});
+    let data=null;try{data=await r.json()}catch{}
+    if(!r.ok)throw new Error(data?.error||'api_error');return data;
+  }
   async function openAccount(){
-    const {data}=await db.auth.getSession();if(!data.session){toastA('Bitte zuerst anmelden');q('#authModal')?.classList.remove('hidden');if(typeof setAuthMode==='function')setAuthMode('login');return}
+    let customer=null;try{customer=(await api('/api/v1/customer/auth/me')).customer}catch{}
+    if(!customer){toastA('Bitte zuerst anmelden');q('#authModal')?.classList.remove('hidden');if(typeof setAuthMode==='function')setAuthMode('login');return}
     document.querySelectorAll('.view').forEach(v=>v.classList.add('hidden'));q('#accountView').classList.remove('hidden');document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));renderWishlist();await loadOrdersAndNotifications();window.scrollTo({top:0,behavior:'smooth'});
   }
   async function loadOrdersAndNotifications(){await Promise.all([loadOrders(),loadNotifications()])}
@@ -47,10 +53,15 @@
   window.rkRenderWishlist=renderWishlist;
   async function loadOrders(){
     const box=q('#customerOrders'),count=q('#customerOrderCount');
-    const {data,error}=await db.rpc('customer_orders');if(error){console.error(error);box.innerHTML='<p class="muted">Bestellungen konnten nicht geladen werden.</p>';return}
-    const orders=Array.isArray(data)?data:(data||[]);count.textContent=`${orders.length} ${orders.length===1?'Bestellung':'Bestellungen'}`;
-    const labels={new:'Offen',paid:'Bezahlt',processing:'In Bearbeitung',shipped:'Versendet',completed:'Abgeschlossen',cancelled:'Storniert'};
-    box.innerHTML=orders.map(o=>{const shipping=(o.tracking_number||o.shipping_carrier||o.tracking_url)?`<div class="customer-shipping"><strong>Versand</strong>${o.shipping_carrier?`<div>${esc(o.shipping_carrier)}</div>`:''}${o.tracking_number?`<div>Sendungsnummer: ${esc(o.tracking_number)}</div>`:''}${o.tracking_url?`<a class="tracking-link" href="${esc(o.tracking_url)}" target="_blank" rel="noopener">Sendung verfolgen</a>`:''}${o.shipped_at?`<div class="muted">Versendet am ${new Date(o.shipped_at).toLocaleDateString('de-DE')}</div>`:''}</div>`:'';return `<div class="customer-order"><div><strong>Bestellung #${o.id}</strong><div class="muted">${new Date(o.created_at).toLocaleString('de-DE')}</div><div class="customer-items">${(o.items||[]).map(i=>`${esc(i.product_name)} × ${i.quantity} · ${money(i.unit_price)}`).join('<br>')}</div>${shipping}</div><div><div class="customer-status">${esc(labels[o.status]||o.status)}</div><div class="customer-total">${money(o.total)}</div></div></div>`}).join('')||'<p class="muted">Du hast noch keine Bestellungen.</p>';
+    try{
+      const result=await api('/api/v1/customer/orders');
+      const orders=result.orders||[];count.textContent=`${orders.length} ${orders.length===1?'Bestellung':'Bestellungen'}`;
+      const labels={new:'Offen',paid:'Bezahlt',processing:'In Bearbeitung',shipped:'Versendet',completed:'Abgeschlossen',cancelled:'Storniert'};
+      box.innerHTML=orders.map(o=>{
+        const shipping=(o.tracking_number||o.shipping_carrier||o.tracking_url)?`<div class="customer-shipping"><strong>Versand</strong>${o.shipping_carrier?`<div>${esc(o.shipping_carrier)}</div>`:''}${o.tracking_number?`<div>Sendungsnummer: ${esc(o.tracking_number)}</div>`:''}${o.tracking_url?`<a class="tracking-link" href="${esc(o.tracking_url)}" target="_blank" rel="noopener">Sendung verfolgen</a>`:''}</div>`:''; 
+        return `<div class="customer-order"><div><strong>Bestellung #${o.id}</strong><div class="muted">${new Date(o.created_at).toLocaleString('de-DE')}</div><div class="customer-items">${(o.items||[]).map(i=>`${esc(i.product_name)} × ${i.quantity} · ${money(i.unit_price)}`).join('<br>')}</div>${shipping}</div><div><div class="customer-status">${esc(labels[o.status]||o.status)}</div><div class="customer-total">${money(o.total)}</div></div></div>`;
+      }).join('')||'<p class="muted">Du hast noch keine Bestellungen.</p>';
+    }catch(e){console.error(e);box.innerHTML='<p class="muted">Bestellungen konnten nicht geladen werden.</p>';}
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
 })();
