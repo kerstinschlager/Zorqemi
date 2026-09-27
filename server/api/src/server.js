@@ -201,7 +201,7 @@ app.get('/api/v1/checkout/session/:sessionId', attachCustomer, async (req,res,ne
     if (!result.rowCount) return res.status(404).json({ok:false,error:'checkout_session_not_found'});
     const checkout = result.rows[0];
     const cookieHeader = String(req.headers.cookie || '');
-    const accessToken = decodeURIComponent(cookieHeader.match(/(?:^|;)\\s*zq_checkout_access=([^;]*)/)?.[1] || '');
+    const accessToken = decodeURIComponent(cookieHeader.match(/(?:^|;)\s*zq_checkout_access=([^;]*)/)?.[1] || '');
     const tokenHash = accessToken ? crypto.createHash('sha256').update(accessToken).digest('hex') : '';
     const customerOwns = req.customerUser?.id && String(req.customerUser.id) === String(checkout.customer_id);
     const guestOwns = tokenHash && checkout.checkout_access_token_hash && tokenHash === checkout.checkout_access_token_hash;
