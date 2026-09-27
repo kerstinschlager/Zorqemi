@@ -276,7 +276,42 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
   } catch (error) {
     await checkoutClient.query('ROLLBACK').catch(() => {});
     checkoutClient.release();
-    if (error?.code === '23505') fail('checkout_request_already_exists',409);
+    if (error?.code === '23505') {
+      const concurrent = await pool.query(
+        `SELECT id,status,total,currency,payment_reference
+           FROM checkout_sessions
+          WHERE idempotency_key=$1
+          LIMIT 1`,
+        [idempotencyKey]
+      );
+      if (concurrent.rowCount) {
+        const row = concurrent.rows[0];
+        if (row.payment_reference && row.status === 'payment_pending') {
+          try {
+            const existingStripe = await stripe.checkout.sessions.retrieve(row.payment_reference);
+            return {
+              id: String(row.id),
+              url: existingStripe.url,
+              stripe_session_id: row.payment_reference,
+              total: Number(row.total),
+              currency: row.currency,
+              checkout_access_token: null
+            };
+          } catch {}
+        }
+        if (row.status === 'paid') {
+          return {
+            id: String(row.id),
+            url: null,
+            stripe_session_id: row.payment_reference,
+            total: Number(row.total),
+            currency: row.currency,
+            checkout_access_token: null
+          };
+        }
+      }
+      fail('checkout_request_already_exists',409);
+    }
     throw error;
   }
   const checkoutId = String(checkout.rows[0].id);
