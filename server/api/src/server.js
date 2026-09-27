@@ -5,6 +5,7 @@ import { resolveShopByHost, getPublicShop } from './shop-router.js';
 import { getMerchantForOwner, listMerchantProducts, createMerchantProduct, updateMerchantProduct, getMerchantOrders, updateMerchantOrder, getShopSettings, updateShopSettings, updateMerchantShipping, getMerchantProfile, updateMerchantProfile, getMerchantLegal, updateMerchantLegal } from './merchant-api.js';
 import { getMerchantFromRequest, loginMerchant, registerMerchant, logoutMerchant, setMerchantSessionCookie, validatePassword, getCustomerFromRequest, loginCustomer, registerCustomer, logoutCustomer, setCustomerSessionCookie } from './auth.js';
 import { createCheckoutSession, handleStripeWebhook } from './checkout-api.js';
+import { getCart, addCartItem, updateCartItem, removeCartItem } from './cart-api.js';
 import { getMerchantPayouts, createMerchantPayout, markPayoutPaid, listAdminPayouts, getPlatformCommission, setPlatformCommission, listAdminMerchants, cancelMerchantPayout } from './payout-api.js';
 
 const { Pool } = pg;
@@ -99,6 +100,13 @@ app.patch('/api/v1/admin/payouts/:payoutId/paid',requirePlatformAdmin,async(req,
 app.get('/api/v1/admin/commission',requirePlatformAdmin,async(_req,res,next)=>{try{res.json({ok:true,rate:await getPlatformCommission(pool)});}catch(e){next(e);}});
 app.patch('/api/v1/admin/commission',requirePlatformAdmin,async(req,res,next)=>{try{res.json({ok:true,rate:await setPlatformCommission(pool,req.body?.rate)});}catch(e){next(e);}});
 app.patch('/api/v1/merchant/:merchantId/settings',requireOwnMerchant,async(req,res,next)=>{try{const settings=await updateShopSettings(pool,requestedMerchant(req),req.merchantUser.user_id,req.body||{});if(!settings)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,settings});}catch(e){next(e);}});
+
+async function attachCustomer(req,_res,next) { try { req.customerUser=await getCustomerFromRequest(pool,req); next(); } catch(e){next(e);} }
+
+app.get('/api/v1/cart',attachCustomer,async(req,res,next)=>{try{res.json({ok:true,...await getCart(pool,req)});}catch(e){next(e);}});
+app.post('/api/v1/cart/items',attachCustomer,async(req,res,next)=>{try{res.status(201).json({ok:true,...await addCartItem(pool,req,req.body||{})});}catch(e){next(e);}});
+app.patch('/api/v1/cart/items/:itemId',attachCustomer,async(req,res,next)=>{try{res.json({ok:true,...await updateCartItem(pool,req,req.params.itemId,req.body?.quantity)});}catch(e){next(e);}});
+app.delete('/api/v1/cart/items/:itemId',attachCustomer,async(req,res,next)=>{try{res.json({ok:true,...await removeCartItem(pool,req,req.params.itemId)});}catch(e){next(e);}});
 
 // Public checkout: prices and stock are always read from PostgreSQL; client totals are ignored.
 app.post('/api/v1/checkout/session', async (req,res,next) => {
