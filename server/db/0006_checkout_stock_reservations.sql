@@ -14,3 +14,6 @@ CREATE TABLE IF NOT EXISTS checkout_stock_reservations (
 CREATE INDEX IF NOT EXISTS checkout_stock_reservations_checkout_idx ON checkout_stock_reservations(checkout_session_id);
 CREATE INDEX IF NOT EXISTS checkout_stock_reservations_active_idx ON checkout_stock_reservations(released_at, settled_at) WHERE released_at IS NULL AND settled_at IS NULL;
 INSERT INTO schema_migrations(version) VALUES ('0006_checkout_stock_reservations') ON CONFLICT (version) DO NOTHING;
+
+ALTER TABLE checkout_sessions ADD COLUMN IF NOT EXISTS idempotency_key text;
+CREATE UNIQUE INDEX IF NOT EXISTS checkout_sessions_idempotency_unique ON checkout_sessions(idempotency_key) WHERE idempotency_key IS NOT NULL;
