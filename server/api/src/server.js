@@ -179,6 +179,9 @@ app.delete('/api/v1/cart/items/:itemId',attachCustomer,async(req,res,next)=>{try
 app.post('/api/v1/checkout/session', attachCustomer, async (req,res,next) => {
   try {
     const result = await createCheckoutSession(pool, req.body || {}, req.customerUser || null);
+    if (result?.checkout_access_token) {
+      res.cookie('zq_checkout_access', result.checkout_access_token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: 30 * 60 * 1000, path: '/api/v1/checkout' });
+    }
     res.status(201).json({ ok: true, checkout: result });
   } catch (e) { next(e); }
 });
@@ -188,7 +191,7 @@ app.get('/api/v1/checkout/session/:sessionId', attachCustomer, async (req,res,ne
     const id = String(req.params.sessionId || '').trim();
     if (!id || id.length > 100) return res.status(400).json({ok:false,error:'invalid_checkout_session'});
     const result = await pool.query(
-      `SELECT id,status,currency,total,created_at,updated_at,customer_id
+      `SELECT id,status,currency,total,created_at,updated_at,customer_id,checkout_access_token_hash
          FROM checkout_sessions
         WHERE (id=$1 OR payment_reference=$1)
         LIMIT 1`,
@@ -196,9 +199,11 @@ app.get('/api/v1/checkout/session/:sessionId', attachCustomer, async (req,res,ne
     );
     if (!result.rowCount) return res.status(404).json({ok:false,error:'checkout_session_not_found'});
     const checkout = result.rows[0];
-    if (!req.customerUser?.id || String(req.customerUser.id) !== String(checkout.customer_id)) {
-      return res.status(403).json({ok:false,error:'checkout_access_denied'});
-    }
+    const accessToken = String(req.cookies?.zq_checkout_access || '');
+    const tokenHash = accessToken ? crypto.createHash('sha256').update(accessToken).digest('hex') : '';
+    const customerOwns = req.customerUser?.id && String(req.customerUser.id) === String(checkout.customer_id);
+    const guestOwns = tokenHash && checkout.checkout_access_token_hash && tokenHash === checkout.checkout_access_token_hash;
+    if (!customerOwns && !guestOwns) return res.status(403).json({ok:false,error:'checkout_access_denied'});
     res.json({ok:true,checkout:{id:checkout.id,status:checkout.status,currency:checkout.currency,total:checkout.total,created_at:checkout.created_at,updated_at:checkout.updated_at}});
   } catch (e) { next(e); }
 });
