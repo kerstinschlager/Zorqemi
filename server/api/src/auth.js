@@ -28,3 +28,90 @@ export function hashMerchantPassword(password){return hashPassword(password);} e
 
 export async function createCustomerSession(pool,customerId){const token=createSessionToken();await pool.query(`INSERT INTO customer_sessions(customer_id,token_hash,expires_at) VALUES($1,$2,now()+interval '${SESSION_DAYS} days')`,[customerId,hashToken(token)]);return token;}
 export async function getCustomerFromRequest(pool,req){const header=req.get('authorization')||'';if(!header.startsWith('Bearer '))return null;const token=header.slice(7).trim();if(!/^[a-f0-9]{64}$/i.test(token))return null;const r=await pool.query(`SELECT c.id,c.email,c.first_name,c.last_name FROM customer_sessions s JOIN customers c ON c.id=s.customer_id WHERE s.token_hash=$1 AND s.expires_at>now() LIMIT 1`,[hashToken(token)]);return r.rows[0]??null;}
+
+
+const CUSTOMER_COOKIE_NAME = 'zq_customer_session';
+
+function customerRequestToken(req) {
+  const header = req.get('authorization') || '';
+  if (header.startsWith('Bearer ')) return header.slice(7).trim();
+  return readCookie(req, CUSTOMER_COOKIE_NAME);
+}
+
+export function setCustomerSessionCookie(res, token) {
+  const secure = process.env.NODE_ENV === 'production';
+  res.setHeader('Set-Cookie', `${CUSTOMER_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=${SESSION_DAYS * 86400}`);
+}
+
+export function clearCustomerSessionCookie(res) {
+  const secure = process.env.NODE_ENV === 'production';
+  res.setHeader('Set-Cookie', `${CUSTOMER_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=0`);
+}
+
+export async function getCustomerFromRequest(pool, req) {
+  const token = customerRequestToken(req);
+  if (!/^[a-f0-9]{64}$/i.test(token || '')) return null;
+  const r = await pool.query(
+    `SELECT c.id,c.email,c.first_name,c.last_name
+       FROM customer_sessions s
+       JOIN customers c ON c.id=s.customer_id
+      WHERE s.token_hash=$1 AND s.expires_at>now()
+      LIMIT 1`,
+    [hashToken(token)]
+  );
+  if (!r.rows[0]) return null;
+  return r.rows[0];
+}
+
+export async function registerCustomer(pool, { email, password, firstName, lastName }) {
+  const normalized = String(email || '').trim().toLowerCase();
+  const first = String(firstName || '').trim().slice(0, 80);
+  const last = String(lastName || '').trim().slice(0, 80);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) || normalized.length > 254 || !validatePassword(password)) {
+    const e = new Error('invalid_registration'); e.status = 400; throw e;
+  }
+  const passwordHash = hashPassword(password);
+  try {
+    const r = await pool.query(
+      `INSERT INTO customers(email,password_hash,first_name,last_name)
+       VALUES($1,$2,$3,$4)
+       RETURNING id,email,first_name,last_name`,
+      [normalized,passwordHash,first || null,last || null]
+    );
+    const customer = r.rows[0];
+    const token = await createCustomerSession(pool, customer.id);
+    return { token, customer };
+  } catch (e) {
+    if (e?.code === '23505') { e.status = 409; e.message = 'email_already_registered'; }
+    throw e;
+  }
+}
+
+export async function loginCustomer(pool, email, password) {
+  const normalized = String(email || '').trim().toLowerCase();
+  const r = await pool.query(
+    `SELECT id,email,first_name,last_name,password_hash
+       FROM customers WHERE lower(email)=$1 LIMIT 1`,
+    [normalized]
+  );
+  const customer = r.rows[0];
+  if (!customer || !verifyPassword(String(password || ''), customer.password_hash)) return null;
+  const token = await createCustomerSession(pool, customer.id);
+  return {
+    token,
+    customer: {
+      id: customer.id,
+      email: customer.email,
+      first_name: customer.first_name,
+      last_name: customer.last_name
+    }
+  };
+}
+
+export async function logoutCustomer(pool, req, res) {
+  const token = customerRequestToken(req);
+  if (/^[a-f0-9]{64}$/i.test(token || '')) {
+    await pool.query('DELETE FROM customer_sessions WHERE token_hash=$1', [hashToken(token)]);
+  }
+  clearCustomerSessionCookie(res);
+}
