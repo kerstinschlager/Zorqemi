@@ -45,7 +45,7 @@ export function getStripe() {
   return key ? new Stripe(key) : null;
 }
 
-export async function createCheckoutSession(pool, body) {
+export async function createCheckoutSession(pool, body, authenticatedCustomer = null) {
   const stripe = getStripe();
   if (!stripe) fail('stripe_not_configured', 503);
 
@@ -119,11 +119,25 @@ export async function createCheckoutSession(pool, body) {
   const tax = merchantTotals.reduce((sum, item) => sum + item.tax, 0);
   const total = merchantTotals.reduce((sum, item) => sum + item.total, 0);
   const shippingAddress = cleanAddress(body?.shipping_address);
-  const customerEmail = String(body?.customer_email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail) || customerEmail.length > 254) fail('invalid_customer_email', 400);
-  const customerResult = await pool.query('INSERT INTO customers(email) VALUES($1) ON CONFLICT (lower(email)) DO UPDATE SET updated_at=now() RETURNING id',[customerEmail]);
-  const customerId = customerResult.rows[0]?.id;
-  if (!customerId) fail('customer_unavailable', 500);
+  let customerEmail = String(body?.customer_email || '').trim().toLowerCase();
+  let customerId = null;
+  if (authenticatedCustomer?.id) {
+    const customerResult = await pool.query(
+      'SELECT id,email FROM customers WHERE id=$1 LIMIT 1',
+      [authenticatedCustomer.id]
+    );
+    if (!customerResult.rowCount) fail('customer_not_found', 401);
+    customerId = customerResult.rows[0].id;
+    customerEmail = String(customerResult.rows[0].email || '').trim().toLowerCase();
+  } else {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail) || customerEmail.length > 254) fail('invalid_customer_email', 400);
+    const customerResult = await pool.query(
+      'INSERT INTO customers(email) VALUES($1) ON CONFLICT (lower(email)) DO UPDATE SET updated_at=now() RETURNING id',
+      [customerEmail]
+    );
+    customerId = customerResult.rows[0]?.id;
+  }
+  if (!customerId || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) fail('customer_unavailable', 500);
 
   const checkout = await pool.query(
     `INSERT INTO checkout_sessions (merchant_id,customer_id,status,currency,subtotal,shipping_total,tax_total,total,shipping_address,payment_provider,expires_at)
