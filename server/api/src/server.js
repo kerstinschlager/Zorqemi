@@ -3,7 +3,7 @@ import pg from 'pg';
 import { migrate } from './migrate.js';
 import { resolveShopByHost, getPublicShop } from './shop-router.js';
 import { getMerchantForOwner, listMerchantProducts, createMerchantProduct, updateMerchantProduct, getMerchantOrders, updateMerchantOrder, getShopSettings, updateShopSettings, updateMerchantShipping, getMerchantProfile, updateMerchantProfile, getMerchantLegal, updateMerchantLegal } from './merchant-api.js';
-import { getMerchantFromRequest, loginMerchant, registerMerchant, logoutMerchant, setMerchantSessionCookie, validatePassword } from './auth.js';
+import { getMerchantFromRequest, loginMerchant, registerMerchant, logoutMerchant, setMerchantSessionCookie, validatePassword, getCustomerFromRequest, loginCustomer, registerCustomer, logoutCustomer, setCustomerSessionCookie } from './auth.js';
 import { createCheckoutSession, handleStripeWebhook } from './checkout-api.js';
 import { getMerchantPayouts, createMerchantPayout, markPayoutPaid, listAdminPayouts, getPlatformCommission, setPlatformCommission, listAdminMerchants, cancelMerchantPayout } from './payout-api.js';
 
@@ -34,6 +34,35 @@ app.post('/api/v1/auth/register', async (req,res,next) => { try { const result=a
 app.post('/api/v1/auth/login', async (req,res,next) => { try { const email=String(req.body?.email||'').trim(); const password=String(req.body?.password||''); if(!email||!validatePassword(password))return res.status(400).json({ok:false,error:'invalid_credentials'}); const result=await loginMerchant(pool,email,password); if(!result)return res.status(401).json({ok:false,error:'invalid_credentials'}); setMerchantSessionCookie(res,result.token); res.json({ok:true,user:result.user}); } catch(e){next(e);} });
 app.get('/api/v1/auth/me', async (req,res,next) => { try { const user=await getMerchantFromRequest(pool,req); if(!user)return res.status(401).json({ok:false,error:'authentication_required'}); res.json({ok:true,user}); } catch(e){next(e);} });
 app.post('/api/v1/auth/logout', async (req,res,next) => { try { await logoutMerchant(pool,req,res); res.json({ok:true}); } catch(e){next(e);} });
+
+app.post('/api/v1/customer/auth/register', async (req,res,next) => {
+  try {
+    const result = await registerCustomer(pool, req.body || {});
+    setCustomerSessionCookie(res, result.token);
+    res.status(201).json({ok:true, customer:result.customer});
+  } catch (e) { next(e); }
+});
+app.post('/api/v1/customer/auth/login', async (req,res,next) => {
+  try {
+    const email = String(req.body?.email || '').trim();
+    const password = String(req.body?.password || '');
+    if (!email || !validatePassword(password)) return res.status(400).json({ok:false,error:'invalid_credentials'});
+    const result = await loginCustomer(pool, email, password);
+    if (!result) return res.status(401).json({ok:false,error:'invalid_credentials'});
+    setCustomerSessionCookie(res, result.token);
+    res.json({ok:true, customer:result.customer});
+  } catch (e) { next(e); }
+});
+app.get('/api/v1/customer/auth/me', async (req,res,next) => {
+  try {
+    const customer = await getCustomerFromRequest(pool, req);
+    if (!customer) return res.status(401).json({ok:false,error:'authentication_required'});
+    res.json({ok:true, customer});
+  } catch (e) { next(e); }
+});
+app.post('/api/v1/customer/auth/logout', async (req,res,next) => {
+  try { await logoutCustomer(pool, req, res); res.json({ok:true}); } catch (e) { next(e); }
+});
 
 async function requireOwnMerchant(req,res,next) { try { const user=await getMerchantFromRequest(pool,req); if(!user)return res.status(401).json({ok:false,error:'authentication_required'}); req.merchantUser=user; next(); } catch(e){next(e);} }
 function requestedMerchant(req){return req.params.merchantId;}
