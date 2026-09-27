@@ -66,9 +66,9 @@ async function releaseCheckoutStock(pool, checkoutId) {
     );
     for (const row of rows.rows) {
       if (row.variant_id) {
-        await client.query('UPDATE product_variants SET stock=stock+$1,updated_at=now() WHERE id=$2',[row.quantity,row.variant_id]);
+        await client.query('UPDATE product_variants SET reserved_stock=GREATEST(0,reserved_stock-$1),updated_at=now() WHERE id=$2',[row.quantity,row.variant_id]);
       } else {
-        await client.query('UPDATE products SET stock=stock+$1,updated_at=now() WHERE id=$2',[row.quantity,row.product_id]);
+        await client.query('UPDATE products SET reserved_stock=GREATEST(0,reserved_stock-$1),updated_at=now() WHERE id=$2',[row.quantity,row.product_id]);
       }
     }
     await client.query(
@@ -304,12 +304,12 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
       const variantId=entry.variant?.variant_id || null;
       const stockResult = variantId
         ? await reservationClient.query(
-            `UPDATE product_variants SET stock=stock-$1,updated_at=now()
-               WHERE id=$2 AND active=true AND stock >= $1 RETURNING id`,
+            `UPDATE product_variants SET reserved_stock=reserved_stock+$1,updated_at=now()
+               WHERE id=$2 AND active=true AND stock-reserved_stock >= $1 RETURNING id`,
             [entry.quantity,variantId])
         : await reservationClient.query(
-            `UPDATE products SET stock=stock-$1,updated_at=now()
-               WHERE id=$2 AND active=true AND stock >= $1 RETURNING id`,
+            `UPDATE products SET reserved_stock=reserved_stock+$1,updated_at=now()
+               WHERE id=$2 AND active=true AND stock-reserved_stock >= $1 RETURNING id`,
             [entry.quantity,productId]);
       if (!stockResult.rowCount) fail('stock_unavailable',409);
       await reservationClient.query(
