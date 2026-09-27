@@ -4,7 +4,7 @@ import { migrate } from './migrate.js';
 import { resolveShopByHost, getPublicShop } from './shop-router.js';
 import { getMerchantForOwner, listMerchantProducts, createMerchantProduct, updateMerchantProduct, getMerchantOrders, updateMerchantOrder, getShopSettings, updateShopSettings, updateMerchantShipping, getMerchantProfile, updateMerchantProfile, getMerchantLegal, updateMerchantLegal } from './merchant-api.js';
 import { getMerchantFromRequest, loginMerchant, registerMerchant, logoutMerchant, setMerchantSessionCookie, validatePassword, getCustomerFromRequest, loginCustomer, registerCustomer, logoutCustomer, setCustomerSessionCookie } from './auth.js';
-import { createCheckoutSession, handleStripeWebhook } from './checkout-api.js';
+import { createCheckoutSession, handleStripeWebhook, releaseExpiredCheckoutReservations } from './checkout-api.js';
 import { getCart, addCartItem, updateCartItem, removeCartItem } from './cart-api.js';
 import { getMerchantPayouts, createMerchantPayout, markPayoutPaid, listAdminPayouts, getPlatformCommission, setPlatformCommission, listAdminMerchants, cancelMerchantPayout } from './payout-api.js';
 
@@ -27,6 +27,16 @@ app.post('/api/v1/payments/stripe/webhook', express.raw({ type: 'application/jso
 });
 
 app.use(express.json({ limit: '1mb' }));
+
+app.post('/api/v1/maintenance/checkout-reservations', async (req,res,next) => {
+  try {
+    const expected=String(process.env.INTERNAL_MAINTENANCE_TOKEN || '').trim();
+    if (!expected || String(req.get('x-zorqemi-maintenance-token') || '') !== expected) {
+      return res.status(404).json({ok:false,error:'not_found'});
+    }
+    res.json({ok:true,...await releaseExpiredCheckoutReservations(pool)});
+  } catch(e) { next(e); }
+});
 
 app.get('/healthz', async (_req,res) => { try { const r=await pool.query('select current_timestamp as now'); res.json({ok:true,service:'zorqemi-api',database:'ok',time:r.rows[0].now}); } catch(e) { console.error('healthz',e); res.status(503).json({ok:false,service:'zorqemi-api',database:'unavailable'}); } });
 app.get('/api/v1/status', async (_req,res) => { try { const r=await pool.query('select version from schema_migrations order by version desc limit 1'); res.json({ok:true,version:'0.4.0',migration:r.rows[0]?.version??null,database:'postgresql'}); } catch(e) { console.error('status',e); res.status(503).json({ok:false,version:'0.4.0',migration:'database-unavailable'}); } });
@@ -210,4 +220,6 @@ app.get('/api/v1/marketplace/products',async(_req,res,next)=>{try{const result=a
 app.use((_req,res)=>res.status(404).json({ok:false,error:'not_found'}));
 app.use((error,_req,res,_next)=>{console.error(error);const status=Number(error?.status)||500;res.status(status).json({ok:false,error:status<500?error.message:'internal_server_error'});});
 
-try{await migrate(pool);const server=app.listen(port,'0.0.0.0',()=>console.log(`Zorqemi API listening on ${port}`));const shutdown=async(signal)=>{console.log(`Received ${signal}, shutting down`);server.close(async()=>{await pool.end();process.exit(0);});};process.on('SIGTERM',()=>shutdown('SIGTERM'));process.on('SIGINT',()=>shutdown('SIGINT'));}catch(error){console.error('Database migration failed:',error);await pool.end();process.exit(1);}
+try{await migrate(pool);const server=app.listen(port,'0.0.0.0',()=>console.log(`Zorqemi API listening on ${port}`));
+  const checkoutCleanupTimer=setInterval(()=>releaseExpiredCheckoutReservations(pool).catch((error)=>console.error('checkout reservation cleanup',error)),60_000);
+  checkoutCleanupTimer.unref?.();const shutdown=async(signal)=>{console.log(`Received ${signal}, shutting down`);server.close(async()=>{await pool.end();process.exit(0);});};process.on('SIGTERM',()=>shutdown('SIGTERM'));process.on('SIGINT',()=>shutdown('SIGINT'));}catch(error){console.error('Database migration failed:',error);await pool.end();process.exit(1);}
