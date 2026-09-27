@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'node:crypto';
 import pg from 'pg';
 import { migrate } from './migrate.js';
 import { resolveShopByHost, getPublicShop } from './shop-router.js';
@@ -180,7 +181,7 @@ app.post('/api/v1/checkout/session', attachCustomer, async (req,res,next) => {
   try {
     const result = await createCheckoutSession(pool, req.body || {}, req.customerUser || null);
     if (result?.checkout_access_token) {
-      res.cookie('zq_checkout_access', result.checkout_access_token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: 30 * 60 * 1000, path: '/api/v1/checkout' });
+      res.setHeader('Set-Cookie', `zq_checkout_access=${encodeURIComponent(result.checkout_access_token)}; Max-Age=1800; Path=/api/v1/checkout; HttpOnly; Secure; SameSite=Lax`);
     }
     res.status(201).json({ ok: true, checkout: result });
   } catch (e) { next(e); }
@@ -199,7 +200,8 @@ app.get('/api/v1/checkout/session/:sessionId', attachCustomer, async (req,res,ne
     );
     if (!result.rowCount) return res.status(404).json({ok:false,error:'checkout_session_not_found'});
     const checkout = result.rows[0];
-    const accessToken = String(req.cookies?.zq_checkout_access || '');
+    const cookieHeader = String(req.headers.cookie || '');
+    const accessToken = decodeURIComponent(cookieHeader.match(/(?:^|;)\\s*zq_checkout_access=([^;]*)/)?.[1] || '');
     const tokenHash = accessToken ? crypto.createHash('sha256').update(accessToken).digest('hex') : '';
     const customerOwns = req.customerUser?.id && String(req.customerUser.id) === String(checkout.customer_id);
     const guestOwns = tokenHash && checkout.checkout_access_token_hash && tokenHash === checkout.checkout_access_token_hash;
