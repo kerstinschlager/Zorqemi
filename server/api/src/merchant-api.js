@@ -53,6 +53,11 @@ export async function updateMerchantProduct(pool, merchantId, userId, productId,
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
+    if(body.stock!==undefined){
+      const lock=await client.query('SELECT reserved_stock FROM products WHERE merchant_id=$1 AND id=$2 FOR UPDATE',[merchantId,productId]);
+      if(!lock.rows[0]){await client.query('ROLLBACK');return null;}
+      if(Number(body.stock)<Number(lock.rows[0].reserved_stock||0)){const x=new Error('stock_below_reserved');x.status=409;throw x;}
+    }
     const r=fields.length?await client.query(`UPDATE products SET ${fields.join(',')},updated_at=now() WHERE merchant_id=$${values.length+1} AND id=$${values.length+2} RETURNING *`,[...values,merchantId,productId]):await client.query('SELECT * FROM products WHERE merchant_id=$1 AND id=$2',[merchantId,productId]);
     const product=r.rows[0]; if(!product){await client.query('ROLLBACK');return null;}
     if(body.variants!==undefined){
@@ -66,6 +71,9 @@ export async function updateMerchantProduct(pool, merchantId, userId, productId,
         if(!name||name.length>200||sku.length>120||(price!==null&&(!Number.isFinite(price)||price<0))||!Number.isInteger(stock)||stock<0){const x=new Error('invalid_variants');x.status=400;throw x;}
         if(sku){const key=sku.toLowerCase();if(seenSkus.has(key)){const x=new Error('duplicate_variant_sku');x.status=400;throw x;}seenSkus.add(key);const existingSku=await client.query(`SELECT v.id FROM product_variants v JOIN products p ON p.id=v.product_id WHERE p.merchant_id=$1 AND lower(v.sku)=lower($2) AND ($3::uuid IS NULL OR v.id<>$3::uuid) LIMIT 1`,[merchantId,sku,id]);if(existingSku.rows[0]){const x=new Error('duplicate_variant_sku');x.status=400;throw x;}}
         if(id){
+          const variantLock=await client.query('SELECT reserved_stock FROM product_variants WHERE id=$1 AND product_id=$2 FOR UPDATE',[id,productId]);
+          if(!variantLock.rows[0]){const x=new Error('invalid_variant');x.status=400;throw x;}
+          if(stock<Number(variantLock.rows[0].reserved_stock||0)){const x=new Error('stock_below_reserved');x.status=409;throw x;}
           if(seenIds.has(id)){const x=new Error('duplicate_variant');x.status=400;throw x;} seenIds.add(id);
           const own=await client.query('SELECT id FROM product_variants WHERE id=$1 AND product_id=$2',[id,productId]);
           if(!own.rows[0]){const x=new Error('invalid_variant');x.status=400;throw x;}
