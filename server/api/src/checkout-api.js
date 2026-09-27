@@ -222,7 +222,6 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
     await reservationClient.query('COMMIT');
   } catch(error) {
     await reservationClient.query('ROLLBACK');
-    await reservationClient.release();
     await pool.query(`UPDATE checkout_sessions SET status='cancelled',updated_at=now() WHERE id=$1`,[checkoutId]);
     throw error;
   } finally {
