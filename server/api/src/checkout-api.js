@@ -108,12 +108,12 @@ export async function releaseExpiredCheckoutReservations(pool) {
       for (const row of reservations.rows) {
         if (row.variant_id) {
           await client.query(
-            'UPDATE product_variants SET stock=stock+$1,updated_at=now() WHERE id=$2',
+            'UPDATE product_variants SET reserved_stock=GREATEST(0,reserved_stock-$1),updated_at=now() WHERE id=$2',
             [row.quantity,row.variant_id]
           );
         } else {
           await client.query(
-            'UPDATE products SET stock=stock+$1,updated_at=now() WHERE id=$2',
+            'UPDATE products SET reserved_stock=GREATEST(0,reserved_stock-$1),updated_at=now() WHERE id=$2',
             [row.quantity,row.product_id]
           );
         }
@@ -447,8 +447,8 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
           [checkoutId]
         );
         for (const row of reservations.rows) {
-          if (row.variant_id) await client.query('UPDATE product_variants SET stock=stock+$1,updated_at=now() WHERE id=$2',[row.quantity,row.variant_id]);
-          else await client.query('UPDATE products SET stock=stock+$1,updated_at=now() WHERE id=$2',[row.quantity,row.product_id]);
+          if (row.variant_id) await client.query('UPDATE product_variants SET reserved_stock=GREATEST(0,reserved_stock-$1),updated_at=now() WHERE id=$2',[row.quantity,row.variant_id]);
+          else await client.query('UPDATE products SET reserved_stock=GREATEST(0,reserved_stock-$1),updated_at=now() WHERE id=$2',[row.quantity,row.product_id]);
         }
         await client.query(
           `UPDATE checkout_stock_reservations SET released_at=now()
