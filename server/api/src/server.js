@@ -101,6 +101,63 @@ app.get('/api/v1/admin/commission',requirePlatformAdmin,async(_req,res,next)=>{t
 app.patch('/api/v1/admin/commission',requirePlatformAdmin,async(req,res,next)=>{try{res.json({ok:true,rate:await setPlatformCommission(pool,req.body?.rate)});}catch(e){next(e);}});
 app.patch('/api/v1/merchant/:merchantId/settings',requireOwnMerchant,async(req,res,next)=>{try{const settings=await updateShopSettings(pool,requestedMerchant(req),req.merchantUser.user_id,req.body||{});if(!settings)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,settings});}catch(e){next(e);}});
 
+async function requireCustomer(req,res,next) {
+  try {
+    const customer=await getCustomerFromRequest(pool,req);
+    if(!customer)return res.status(401).json({ok:false,error:'authentication_required'});
+    req.customerUser=customer; next();
+  } catch(e){next(e);}
+}
+
+app.get('/api/v1/customer/orders',requireCustomer,async(req,res,next)=>{
+  try{
+    const limit=Math.min(Math.max(Number(req.query.limit)||50,1),100);
+    const result=await pool.query(
+      `SELECT o.id,o.status,o.currency,o.subtotal,o.shipping_total,o.tax_total,o.total,
+              o.shipping_address,o.payment_provider,o.payment_reference,o.created_at,o.updated_at,
+              COALESCE(json_agg(json_build_object(
+                'id',oi.id,'product_id',oi.product_id,'variant_id',oi.variant_id,
+                'merchant_id',oi.merchant_id,'product_name',oi.product_name,
+                'quantity',oi.quantity,'unit_price',oi.unit_price,'total',oi.total
+              ) ORDER BY oi.created_at) FILTER (WHERE oi.id IS NOT NULL),'[]'::json) AS items,
+              m.name AS merchant_name,m.shop_slug
+         FROM orders o
+         LEFT JOIN order_items oi ON oi.order_id=o.id
+         LEFT JOIN merchants m ON m.id=o.merchant_id
+        WHERE o.customer_id=$1
+        GROUP BY o.id,m.name,m.shop_slug
+        ORDER BY o.created_at DESC
+        LIMIT $2`,
+      [req.customerUser.id,limit]
+    );
+    res.json({ok:true,orders:result.rows});
+  }catch(e){next(e);}
+});
+
+app.get('/api/v1/customer/orders/:orderId',requireCustomer,async(req,res,next)=>{
+  try{
+    const result=await pool.query(
+      `SELECT o.id,o.status,o.currency,o.subtotal,o.shipping_total,o.tax_total,o.total,
+              o.shipping_address,o.payment_provider,o.payment_reference,
+              o.shipping_carrier,o.tracking_number,o.tracking_url,o.shipped_at,
+              o.created_at,o.updated_at,
+              COALESCE(json_agg(json_build_object(
+                'id',oi.id,'product_id',oi.product_id,'variant_id',oi.variant_id,
+                'merchant_id',oi.merchant_id,'product_name',oi.product_name,
+                'quantity',oi.quantity,'unit_price',oi.unit_price,'total',oi.total
+              ) ORDER BY oi.created_at) FILTER (WHERE oi.id IS NOT NULL),'[]'::json) AS items
+         FROM orders o
+         LEFT JOIN order_items oi ON oi.order_id=o.id
+        WHERE o.id=$1 AND o.customer_id=$2
+        GROUP BY o.id
+        LIMIT 1`,
+      [req.params.orderId,req.customerUser.id]
+    );
+    if(!result.rows[0])return res.status(404).json({ok:false,error:'order_not_found'});
+    res.json({ok:true,order:result.rows[0]});
+  }catch(e){next(e);}
+});
+
 async function attachCustomer(req,_res,next) { try { req.customerUser=await getCustomerFromRequest(pool,req); next(); } catch(e){next(e);} }
 
 app.get('/api/v1/cart',attachCustomer,async(req,res,next)=>{try{res.json({ok:true,...await getCart(pool,req)});}catch(e){next(e);}});
