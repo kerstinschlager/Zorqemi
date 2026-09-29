@@ -64,6 +64,11 @@
     const host = location.hostname.toLowerCase().replace(/^www\./, '');
     if (SHOP_ROOTS.has(host) || host.endsWith('.github.io')) return;
 
+    // A merchant subdomain is always a public shop entry point.
+    // Prevent the SPA from keeping the previously selected dashboard view.
+    const shopButton = document.querySelector('.nav-btn[data-view="shop"]');
+    if (shopButton) shopButton.click();
+
     const shop = await getShop();
     if (!shop) return;
     window.zqPublicShop = shop;
