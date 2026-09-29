@@ -214,6 +214,14 @@ app.get('/api/v1/shop',async(req,res,next)=>{try{const shop=await resolveShopByH
 app.get('/api/v1/shop/products',async(req,res,next)=>{try{const shop=await resolveShopByHost(pool,req.get('host'));if(!shop)return res.status(404).json({ok:false,error:'shop_not_found'});const result=await pool.query(`SELECT p.id,p.name,p.description,p.price,GREATEST(0,p.stock-p.reserved_stock) AS stock,p.active,p.image_url,p.category,p.source_provider,p.source_product_id,p.created_at,COALESCE(json_agg(json_build_object('id',v.id,'name',v.name,'sku',v.sku,'price',v.price,'stock',GREATEST(0,v.stock-v.reserved_stock),'active',v.active,'source_variant_id',v.source_variant_id) ORDER BY v.created_at) FILTER(WHERE v.id IS NOT NULL),'[]'::json) variants FROM products p LEFT JOIN product_variants v ON v.product_id=p.id WHERE p.merchant_id=$1 AND p.active=true GROUP BY p.id ORDER BY p.created_at DESC`,[shop.id]);res.json({ok:true,shop,products:result.rows});}catch(e){next(e);}});
 app.get('/api/v1/shop/:merchantId',async(req,res,next)=>{try{const shop=await getPublicShop(pool,req.params.merchantId);if(!shop)return res.status(404).json({ok:false,error:'shop_not_found'});res.json({ok:true,shop});}catch(e){next(e);}});
 
+app.get('/api/v1/marketplace/merchants',async(_req,res,next)=>{try{const result=await pool.query(`
+  SELECT m.id,m.name AS shop_name,m.shop_slug,m.slug,m.email,m.description,m.logo_url,m.shop_url,m.published
+    FROM merchants m
+   WHERE m.published=true
+   ORDER BY m.name ASC
+   LIMIT 500
+`);res.json({ok:true,merchants:result.rows});}catch(e){next(e);}});
+
 app.get('/api/v1/marketplace/products',async(_req,res,next)=>{try{const result=await pool.query(`
   SELECT p.id,p.merchant_id,p.name,p.description,p.price,GREATEST(0,p.stock-p.reserved_stock) AS stock,p.active,p.image_url,p.category,p.created_at,
          m.name AS merchant_name,m.slug AS merchant_slug,m.shop_slug,
