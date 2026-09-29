@@ -53,8 +53,10 @@ export async function resolveShopByHost(pool, rawHost) {
 
   // ZorqemiShop addresses are derived from the merchant slug as well,
   // so a merchant does not need a separate DNS-row record for its own subdomain.
-  const suffix = '.zorqemishop.de';
-  if (!hostname.endsWith(suffix)) return null;
+  const suffixes = ['.zorqemi.de', '.zorqemishop.de'];
+  const suffix = suffixes.find((candidate) => hostname.endsWith(candidate));
+  if (!suffix) return null;
+
   const shopSlug = hostname.slice(0, -suffix.length);
   if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(shopSlug)) return null;
 
