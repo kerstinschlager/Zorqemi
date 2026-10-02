@@ -37,7 +37,10 @@ export async function getCart(pool,req){
   } finally { client.release(); }
 }
 
-export async function addCartItem(pool,req,{productId,variantId,quantity}){
+export async function addCartItem(pool,req,body={}){
+  const productId=body.productId ?? body.product_id;
+  const variantId=body.variantId ?? body.variant_id;
+  const quantity=body.quantity;
   const qty=Number(quantity);
   if(!Number.isInteger(qty)||qty<1||qty>99) fail('invalid_quantity',400);
   const owner=ownerFromRequest(req);
