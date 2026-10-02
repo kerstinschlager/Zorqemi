@@ -1,0 +1,51 @@
+name: Deploy Zorqemi server
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'docker-compose.yml'
+      - '.env.example'
+      - '.github/workflows/server-deploy.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate server
+        run: |
+          set -euo pipefail
+          node --check server/api/src/server.js
+          node --check server/api/src/auth.js
+          node --check server/api/src/checkout-api.js
+          docker compose config >/dev/null
+
+      - name: Install SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.ZQ_SERVER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.ZQ_SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          HOST: ${{ secrets.ZQ_SERVER_HOST }}
+          USER: ${{ secrets.ZQ_SERVER_USER }}
+          PATH_ON_SERVER: ${{ secrets.ZQ_SERVER_PATH }}
+        run: |
+          set -euo pipefail
+          test -n "$HOST"
+          test -n "$USER"
+          test -n "$PATH_ON_SERVER"
+          ssh "$USER@$HOST" "mkdir -p '$PATH_ON_SERVER'"
+          rsync -az --delete             --exclude '.git/'             --exclude '.env'             --exclude 'node_modules/'             ./ "$USER@$HOST:$PATH_ON_SERVER/"
+          ssh "$USER@$HOST" "cd '$PATH_ON_SERVER' && docker compose pull && docker compose up -d --build && docker compose ps"
+          ssh "$USER@$HOST" "curl -fsS http://127.0.0.1:8080/healthz"
