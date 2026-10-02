@@ -3,18 +3,21 @@
   const STYLE_ID='rkAiHelperStyle';
   if(document.getElementById(STYLE_ID)) return;
   const style=document.createElement('style'); style.id=STYLE_ID; style.textContent=`
-    #rkAiButton{position:static;z-index:9998;border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer;box-shadow:none;background:#111;color:#fff;white-space:nowrap}
-    #rkAiButton:hover{border-color:rgba(101,255,208,.7);color:#65ffd0}
+    .header-actions{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;min-width:0}
+    #rkAiButton{position:static;flex:0 0 42px;width:42px;height:42px;z-index:9998;border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:0;font-weight:700;cursor:pointer;box-shadow:none;background:#111;color:#fff;white-space:nowrap;font-size:17px;line-height:1}
+    #rkAiButton:hover{border-color:rgba(101,255,208,.7);color:#65ffd0;background:#1c1822}
+    #rkAiButton::after{content:'Hilfe';position:absolute;clip:rect(0 0 0 0);clip-path:inset(50%);height:1px;width:1px;overflow:hidden;white-space:nowrap}
     #rkAiPanel{position:fixed;right:22px;bottom:22px;width:min(390px,calc(100vw - 28px));height:540px;z-index:9999;background:#fff;border:1px solid #e4ddea;border-radius:20px;box-shadow:0 20px 60px #0003;display:none;overflow:hidden;font-family:inherit}
     #rkAiPanel.open{display:flex;flex-direction:column}
     .rk-ai-head{padding:16px 18px;background:linear-gradient(135deg,#111,#312447);color:#fff;display:flex;align-items:center;justify-content:space-between}.rk-ai-head strong{font-size:17px}.rk-ai-close{border:0;background:transparent;color:#fff;font-size:22px;cursor:pointer}
     .rk-ai-messages{flex:1;padding:16px;overflow:auto;background:#faf9fc}.rk-ai-msg{max-width:88%;padding:10px 12px;border-radius:14px;margin:0 0 10px;line-height:1.4;font-size:14px;white-space:pre-wrap}.rk-ai-bot{background:#eee9f5}.rk-ai-user{background:#17131e;color:#fff;margin-left:auto}
     .rk-ai-suggestions{padding:8px 12px;display:flex;gap:7px;overflow:auto;border-top:1px solid #eee}.rk-ai-suggestions button{white-space:nowrap;border:1px solid #ddd4e6;background:#fff;border-radius:999px;padding:7px 10px;cursor:pointer;font-size:12px}
     .rk-ai-form{display:flex;gap:8px;padding:12px;border-top:1px solid #eee}.rk-ai-form input{min-width:0;flex:1;border:1px solid #d8cfdf;border-radius:12px;padding:11px}.rk-ai-form button{border:0;border-radius:12px;padding:0 15px;background:#111;color:#fff;font-weight:700;cursor:pointer}
-    @media(max-width:760px){#rkAiButton{padding:9px 11px;font-size:0}#rkAiButton:first-letter{font-size:16px}#rkAiPanel{right:14px;bottom:14px;height:min(540px,calc(100vh - 28px))}}
+    @media(max-width:900px){.site-header{gap:12px}.header-actions{gap:4px}.header-actions .cart-btn{padding-left:9px;padding-right:9px}.header-actions .cart-btn:not(#cartBtn){display:none}}
+    @media(max-width:760px){#rkAiButton{width:42px;flex-basis:42px}#rkAiPanel{right:14px;bottom:14px;height:min(540px,calc(100vh - 28px))}}
   `;document.head.appendChild(style);
   const panel=document.createElement('section');panel.id='rkAiPanel';panel.innerHTML=`<div class="rk-ai-head"><div><strong>🤖 Zorqemi Helfer</strong><div style="font-size:12px;opacity:.8">Dein Shop-Assistent</div></div><button class="rk-ai-close" aria-label="Schließen">×</button></div><div class="rk-ai-messages"></div><div class="rk-ai-suggestions"><button>Wie steht mein Shop?</button><button>SEO verbessern</button><button>Mehr Besucher bekommen</button><button>Shop gestalten</button></div><form class="rk-ai-form"><input autocomplete="off" placeholder="Was möchtest du wissen?"><button>Senden</button></form></section>`;
-  const button=document.createElement('button');button.id='rkAiButton';button.type='button';button.textContent='🤖 Hilfe';
+  const button=document.createElement('button');button.id='rkAiButton';button.type='button';button.textContent='🤖';button.title='Zorqemi Hilfe';
   const host=document.querySelector('.header-actions')||document.querySelector('.site-header');
   if(host)host.appendChild(button);else document.body.appendChild(button);
   document.body.appendChild(panel);
