@@ -17,6 +17,11 @@ jobs:
           node --check server/api/src/auth.js
           node --check server/api/src/shop-router.js
       - name: Validate Docker Compose
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+          STRIPE_SECRET_KEY: sk_test_ci_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+          INTERNAL_MAINTENANCE_TOKEN: ci-maintenance-token
         run: docker compose config
       - name: Build API image
         run: docker build -f server/api/Dockerfile .
