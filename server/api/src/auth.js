@@ -59,6 +59,12 @@ export async function getCustomerFromRequest(pool, req) {
   return r.rows[0];
 }
 
+export async function createCustomerSession(pool, customerId) {
+  const token = createSessionToken();
+  await pool.query(`INSERT INTO customer_sessions(customer_id,token_hash,expires_at) VALUES($1,$2,now()+interval '${SESSION_DAYS} days')`, [customerId, hashToken(token)]);
+  return token;
+}
+
 export async function registerCustomer(pool, { email, password, firstName, first_name, lastName, last_name }) {
   const normalized = String(email || '').trim().toLowerCase();
   const first = String(firstName ?? first_name ?? '').trim().slice(0, 80);
