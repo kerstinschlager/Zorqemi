@@ -78,6 +78,7 @@ const cartAdd = await request('/api/v1/cart/items', {
   headers: {'Content-Type': 'application/json', 'x-zorqemi-visitor-key': visitorKey},
   body: JSON.stringify({product_id: productId, quantity: 1})
 });
+console.log('guest cart response', cartAdd.response.status, cartAdd.payload);
 assert.equal(cartAdd.response.status, 201);
 assert.equal(cartAdd.payload.items.length, 1);
 assert.equal(cartAdd.payload.items[0].quantity, 1);
