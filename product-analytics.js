@@ -1,10 +1,143 @@
-(()=>{const TRACK='https://oansbivjkczjbtxaknks.supabase.co/functions/v1/track-visitor',db=window.supabase?.createClient(window.__RK_SUPABASE_URL,window.__RK_SUPABASE_KEY);if(!db)return;const vid=()=>{try{let k=localStorage.getItem('zq_anonymous_visitor_id');if(!k){k=crypto.randomUUID();localStorage.setItem('zq_anonymous_visitor_id',k)}return k}catch(_){return crypto.randomUUID()}},slug=()=>new URLSearchParams(location.search).get('shop')||localStorage.getItem('zq_checkout_shop')||'',send=(eventName,productId=null)=>{const s=slug();if(!s)return;fetch(TRACK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:s,visitor_key:vid(),event_name:eventName,product_id:productId,resolve:false}),keepalive:true}).catch(()=>{})};
-function productIdFromCard(card){const b=card.querySelector('button[onclick*="addToCart"]');const m=b?.getAttribute('onclick')?.match(/addToCart\((\d+)\)/);return m?Number(m[1]):null}
-function trackPublicProducts(){if(!slug()||!('IntersectionObserver'in window))return;const seenKey='zq_product_views_'+slug();let seen={};try{seen=JSON.parse(sessionStorage.getItem(seenKey)||'{}')}catch(_){}const io=new IntersectionObserver(entries=>entries.forEach(e=>{if(!e.isIntersecting)return;const id=productIdFromCard(e.target);if(!id||seen[id])return;seen[id]=1;try{sessionStorage.setItem(seenKey,JSON.stringify(seen))}catch(_){}send('product_view',id)}),{threshold:.45});document.querySelectorAll('.product').forEach(x=>io.observe(x));new MutationObserver(()=>document.querySelectorAll('.product').forEach(x=>{if(!x.dataset.zqObserved){x.dataset.zqObserved='1';io.observe(x)}})).observe(document.body,{childList:true,subtree:true})}
-function patchCart(){if(!window.addToCart||window.addToCart.__zqProductAnalytics)return;const original=window.addToCart;const wrapped=async function(id){send('add_to_cart',Number(id));return original.apply(this,arguments)};wrapped.__zqProductAnalytics=true;window.addToCart=wrapped}
-async function merchant(){const {data:{user}}=await db.auth.getUser();if(!user)return null;const {data}=await db.from('merchants').select('id').eq('owner_id',user.id).maybeSingle();return data||null}
-const esc=v=>String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));const money=n=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Number(n)||0);
-async function dashboard(){const m=await merchant();if(!m)return;const panel=document.querySelector('#dashboardOverview');if(!panel)return;let box=document.querySelector('#zqRealFunnel');if(!box){box=document.createElement('article');box.className='panel zq-analytics';box.id='zqRealFunnel';box.innerHTML='<div class="panel-head"><h3>Echter Checkout-Trichter</h3><span>Letzte 30 Tage · Live</span></div><div id="zqRealFunnelBody" class="zq-funnel-card"><div class="muted">Wird geladen …</div></div>';panel.appendChild(box)}const since=new Date(Date.now()-30*86400000).toISOString();const {data:events,error}=await db.from('checkout_events').select('event_name,product_id,visitor_key,order_id,created_at').eq('merchant_id',m.id).gte('created_at',since);if(error){document.querySelector('#zqRealFunnelBody').innerHTML='<div class="visitor-error">Checkout-Statistik konnte nicht geladen werden.</div>';return}const rows=events||[],count=n=>rows.filter(x=>x.event_name===n).length,started=count('checkout_started'),details=count('checkout_details_submitted'),redirect=count('payment_redirected'),cancel=count('payment_cancelled'),purchase=count('purchase_completed');const max=Math.max(1,started);const pct=(n,d)=>d?Math.round(n/d*100):0;document.querySelector('#zqRealFunnelBody').innerHTML=[['Checkout gestartet',started,100],['Zahlungsdaten eingegeben',details,pct(details,started)],['Zu Stripe weitergeleitet',redirect,pct(redirect,started)],['Zahlung abgebrochen',cancel,pct(cancel,started)],['Kauf abgeschlossen',purchase,pct(purchase,started)]].map((r,i)=>`<div class="zq-funnel-row"><div class="zq-funnel-top"><span>${r[0]}</span><strong>${r[1].toLocaleString('de-DE')} · ${r[2]}%</strong></div><div class="zq-funnel-track"><div class="zq-funnel-fill ${i===4?'last':''}" style="width:${Math.max(r[1]?3:0,r[2])}%"></div></div></div>`).join('')+`<div style="margin-top:15px;padding:12px;border-radius:12px;background:#f7f5f8"><strong>Abbruchquote: ${pct(cancel,started)}%</strong><br><span class="muted">Nicht abgeschlossene Checkout-Vorgänge: ${Math.max(0,started-purchase).toLocaleString('de-DE')}</span></div>`;
-const {data:products}=await db.from('products').select('id,name,price').eq('merchant_id',m.id);const pm=Object.fromEntries((products||[]).map(p=>[String(p.id),{name:p.name,views:0,cart:0,checkout:0,sold:0,revenue:0}]));rows.forEach(e=>{const p=pm[String(e.product_id)];if(!p)return;if(e.event_name==='product_view')p.views++;if(e.event_name==='add_to_cart')p.cart++;if(e.event_name==='checkout_started')p.checkout++});const ids=Object.keys(pm).map(Number);if(ids.length){const {data:items}=await db.from('order_items').select('product_id,quantity,unit_price,orders!inner(status,created_at)').in('product_id',ids).gte('orders.created_at',since);(items||[]).forEach(i=>{if(['cancelled','new'].includes(i.orders?.status))return;const p=pm[String(i.product_id)];if(p){p.sold+=Number(i.quantity||0);p.revenue+=Number(i.quantity||0)*Number(i.unit_price||0)}})}const list=Object.values(pm).filter(p=>p.views||p.cart||p.checkout||p.sold).sort((a,b)=>(b.views-a.views)||(b.revenue-a.revenue));let pbox=document.querySelector('#zqRealProducts');if(!pbox){pbox=document.createElement('article');pbox.className='panel zq-product-card';pbox.id='zqRealProducts';panel.appendChild(pbox)}pbox.innerHTML='<h3>Produkt-Trichter</h3><p class="muted">Ansichten → Warenkorb → Checkout → Verkauf</p>'+ (list.length?`<div style="overflow:auto"><table class="zq-product-table"><thead><tr><th>Produkt</th><th>Ansichten</th><th>Warenkorb</th><th>Checkout</th><th>Verkauft</th><th>Umsatz</th><th>Quote</th></tr></thead><tbody>${list.slice(0,50).map(p=>{const q=p.cart?Math.round(p.sold/p.cart*100):0;return `<tr><td>${esc(p.name)}</td><td class="num">${p.views}</td><td class="num">${p.cart}</td><td class="num">${p.checkout}</td><td class="num">${p.sold}</td><td class="num">${money(p.revenue)}</td><td class="num zq-conv">${p.cart?`${q}%`: '—'}</td></tr>`}).join('')}</tbody></table></div>`:'<div class="visitor-empty">Noch keine Produktdaten vorhanden. Sobald Besucher Produkte ansehen oder in den Warenkorb legen, erscheinen sie hier.</div>')}
-let warn=document.querySelector('#zqProductWarnings');if(!warn){warn=document.createElement('article');warn.className='panel zq-product-card';warn.id='zqProductWarnings';panel.appendChild(warn)}const weak=list.filter(p=>p.views>=5&&p.sold===0).sort((a,b)=>b.views-a.views).slice(0,8);warn.innerHTML='<h3>Produkte mit hohem Interesse</h3>'+ (weak.length?`<div class="visitor-empty" style="text-align:left"><strong>⚠ Viele Ansichten, noch kein Verkauf</strong><ul style="margin:10px 0 0 18px">${weak.map(p=>`<li>${esc(p.name)} · ${p.views} Ansichten · ${p.cart} Warenkörbe</li>`).join('')}</ul></div>`:'<div class="visitor-empty">Aktuell keine auffälligen Produkte.</div>')}
-trackPublicProducts();patchCart();setTimeout(patchCart,700);setTimeout(patchCart,1800);let t=setInterval(()=>{patchCart();if(document.querySelector('#dashboardOverview'))dashboard()},30000);if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{trackPublicProducts();patchCart();dashboard()});else dashboard();})();
+(() => {
+  const TRACK = 'https://oansbivjkczjbtxaknks.supabase.co/functions/v1/track-visitor';
+  const db = window.supabase?.createClient?.(window.__RK_SUPABASE_URL, window.__RK_SUPABASE_KEY);
+
+  const visitorId = () => {
+    try {
+      let id = localStorage.getItem('zq_anonymous_visitor_id');
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem('zq_anonymous_visitor_id', id);
+      }
+      return id;
+    } catch (_) {
+      return crypto.randomUUID();
+    }
+  };
+
+  const shopSlug = () =>
+    new URLSearchParams(location.search).get('shop') ||
+    localStorage.getItem('zq_checkout_shop') ||
+    '';
+
+  const send = (eventName, productId = null) => {
+    const slug = shopSlug();
+    if (!slug) return;
+    fetch(TRACK, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        slug,
+        visitor_key: visitorId(),
+        event_name: eventName,
+        product_id: productId,
+        resolve: false
+      }),
+      keepalive: true
+    }).catch(() => {});
+  };
+
+  function productIdFromCard(card) {
+    const button = card.querySelector('button[onclick*="addToCart"]');
+    const value = button?.getAttribute('onclick') || '';
+    const match = value.match(/addToCart\\((\\d+)\\)/);
+    return match ? Number(match[1]) : null;
+  }
+
+  function trackPublicProducts() {
+    if (!shopSlug() || !('IntersectionObserver' in window)) return;
+    const seenKey = 'zq_product_views_' + shopSlug();
+    let seen = {};
+    try { seen = JSON.parse(sessionStorage.getItem(seenKey) || '{}'); } catch (_) {}
+
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const id = productIdFromCard(entry.target);
+        if (!id || seen[id]) return;
+        seen[id] = 1;
+        try { sessionStorage.setItem(seenKey, JSON.stringify(seen)); } catch (_) {}
+        send('product_view', id);
+      });
+    }, {threshold: 0.45});
+
+    const observe = () => {
+      document.querySelectorAll('.product').forEach(card => {
+        if (card.dataset.zqObserved === '1') return;
+        card.dataset.zqObserved = '1';
+        observer.observe(card);
+      });
+    };
+    observe();
+    new MutationObserver(observe).observe(document.body, {childList: true, subtree: true});
+  }
+
+  function patchCart() {
+    if (!window.addToCart || window.addToCart.__zqProductAnalytics) return;
+    const original = window.addToCart;
+    const wrapped = function(id) {
+      send('add_to_cart', Number(id));
+      return original.apply(this, arguments);
+    };
+    wrapped.__zqProductAnalytics = true;
+    window.addToCart = wrapped;
+  }
+
+  async function dashboard() {
+    if (!db) return;
+    if (window.serverSession && window.serverFetch) return;
+    const {data: userData} = await db.auth.getUser();
+    const user = userData?.user;
+    if (!user) return;
+    const {data: merchant} = await db.from('merchants').select('id').eq('owner_id', user.id).maybeSingle();
+    const panel = document.querySelector('#dashboardOverview');
+    if (!merchant || !panel) return;
+
+    let box = document.querySelector('#zqRealFunnel');
+    if (!box) {
+      box = document.createElement('article');
+      box.className = 'panel zq-analytics';
+      box.id = 'zqRealFunnel';
+      box.innerHTML = '<div class="panel-head"><h3>Checkout-Trichter</h3><span>Letzte 30 Tage</span></div><div id="zqRealFunnelBody" class="zq-funnel-card"><div class="muted">Wird geladen …</div></div>';
+      panel.appendChild(box);
+    }
+
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const {data: events, error} = await db.from('checkout_events')
+      .select('event_name,product_id,created_at')
+      .eq('merchant_id', merchant.id)
+      .gte('created_at', since);
+
+    if (error) {
+      document.querySelector('#zqRealFunnelBody').textContent = 'Checkout-Statistik konnte nicht geladen werden.';
+      return;
+    }
+
+    const rows = events || [];
+    const count = name => rows.filter(row => row.event_name === name).length;
+    const started = count('checkout_started');
+    const purchase = count('purchase_completed');
+    const cancelled = count('payment_cancelled');
+    const pct = (n, d) => d ? Math.round(n / d * 100) : 0;
+
+    document.querySelector('#zqRealFunnelBody').innerHTML = [
+      ['Checkout gestartet', started, 100],
+      ['Kauf abgeschlossen', purchase, pct(purchase, started)],
+      ['Zahlung abgebrochen', cancelled, pct(cancelled, started)]
+    ].map(row => `<div class="zq-funnel-row"><div class="zq-funnel-top"><span>${row[0]}</span><strong>${row[1]} · ${row[2]}%</strong></div><div class="zq-funnel-track"><div class="zq-funnel-fill" style="width:${Math.max(row[1] ? 3 : 0, row[2])}%"></div></div></div>`).join('');
+  }
+
+  const init = () => {
+    trackPublicProducts();
+    patchCart();
+    dashboard();
+    setTimeout(patchCart, 700);
+    setTimeout(patchCart, 1800);
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, {once: true});
+  } else {
+    init();
+  }
+})();
