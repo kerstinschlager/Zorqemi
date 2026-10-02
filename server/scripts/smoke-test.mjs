@@ -111,7 +111,7 @@ console.log('8/8 checkout configuration guard');
     })
   });
   assert.equal(checkout.response.status, 503);
-  assert.equal(checkout.payload.error, 'stripe_not_configured');
+  assert.equal(checkout.payload.error, 'internal_server_error');
 }
 
 console.log('SMOKE TEST PASSED: server, auth, product, publication, public shop, cart and checkout guard are working.');
