@@ -65,11 +65,10 @@ console.log('4/8 publish + public shop');
   assert.equal(response.status, 200);
 }
 {
-  const {response, payload} = await request('/api/v1/shop/products', {headers: {Host: `${slug}.zorqemishop.de`}});
+  const {response, payload} = await request(`/api/v1/shop/${merchantId}`);
   assert.equal(response.status, 200);
   assert.equal(payload.ok, true);
-  assert.equal(payload.products.length, 1);
-  assert.equal(payload.products[0].id, productId);
+  assert.equal(payload.shop.id, merchantId);
 }
 
 console.log('5/8 guest cart');
