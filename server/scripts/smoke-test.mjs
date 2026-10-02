@@ -46,6 +46,13 @@ console.log('3/8 merchant auth + product creation');
   assert.equal(response.status, 200);
   assert.equal(payload.user.merchant_id, merchantId);
 }
+
+console.log('3b/8 platform admin guard');
+{
+  const {response, payload} = await request('/api/v1/admin/commission', {headers: {Cookie: `zq_session=${merchantCookie}`}});
+  assert.equal(response.status, 200);
+  assert.equal(payload.ok, true);
+}
 const productResult = await request(`/api/v1/merchant/${merchantId}/products`, {
   method: 'POST',
   headers: {'Content-Type': 'application/json', Cookie: `zq_session=${merchantCookie}`},
