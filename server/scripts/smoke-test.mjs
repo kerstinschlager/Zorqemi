@@ -32,7 +32,7 @@ console.log('2/8 merchant registration + session');
 const merchantRegister = await request('/api/v1/auth/register', {
   method: 'POST',
   headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({email: merchantEmail, password, merchant_name: 'Zorqemi Smoke Shop', shop_slug: slug})
+  body: JSON.stringify({email: merchantEmail, password, name: 'Zorqemi Smoke Shop', slug})
 });
 assert.equal(merchantRegister.response.status, 201);
 const merchantCookie = cookieFrom(merchantRegister.response, 'zq_session');
