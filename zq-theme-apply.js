@@ -18,7 +18,7 @@
       if(hint)hint.innerHTML='✓ <strong>'+themeName(theme)+'</strong> übernommen. Jetzt kannst du deine Webseite gestalten.';
       const editor=document.querySelector('#siteEditor');
       if(editor){editor.scrollIntoView({behavior:'smooth',block:'start'});return;}
-      setTimeout(()=>document.querySelector('#siteEditor')?.scrollIntoView({behavior:'smooth',block:'start'}),250);
+      let tries=0; const reveal=()=>{const ed=document.querySelector('#siteEditor'); if(ed){ed.classList.add('zq-editor-ready'); ed.scrollIntoView({behavior:'smooth',block:'start'}); const h=document.querySelector('#themeHint'); if(h) h.innerHTML='✓ <strong>'+themeName(theme)+'</strong> übernommen. Deine Webseite ist jetzt bereit zur Bearbeitung.'; return;} if(++tries<20)setTimeout(reveal,250)}; setTimeout(reveal,100);
     }finally{busy=false;}
   }
   function themeName(id){return ({modern:'Modern',elegant:'Elegant',minimal:'Minimalistisch',dark:'Dark',nature:'Natur',lifestyle:'Lifestyle',business:'Business',creative:'Kreativ',shop:'Shop',custom:'Individuell'})[id]||id;}
