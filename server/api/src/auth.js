@@ -59,10 +59,10 @@ export async function getCustomerFromRequest(pool, req) {
   return r.rows[0];
 }
 
-export async function registerCustomer(pool, { email, password, firstName, lastName }) {
+export async function registerCustomer(pool, { email, password, firstName, first_name, lastName, last_name }) {
   const normalized = String(email || '').trim().toLowerCase();
-  const first = String(firstName || '').trim().slice(0, 80);
-  const last = String(lastName || '').trim().slice(0, 80);
+  const first = String(firstName ?? first_name ?? '').trim().slice(0, 80);
+  const last = String(lastName ?? last_name ?? '').trim().slice(0, 80);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) || normalized.length > 254 || !validatePassword(password)) {
     const e = new Error('invalid_registration'); e.status = 400; throw e;
   }
