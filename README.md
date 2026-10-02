@@ -15,24 +15,22 @@ Zorqemi ist ein neutraler Marktplatz für unabhängige Händler, physische und d
 - Händler-Bestellungen und Statusverwaltung
 - Versanddienstleister, Tracking und Kundenbenachrichtigungen
 - Plattform-Admin mit Provisionen und Auszahlungsübersicht
-- Supabase Auth + Row Level Security
+- eigener Node.js-/PostgreSQL-Server mit HTTP-only Sessions
 - Stripe Connect Händler-Onboarding
-- Stripe Checkout mit Plattformprovision
-- Stripe Webhook für bezahlt, fehlgeschlagen, abgelaufen und erstattet
+- Stripe Checkout mit serverseitiger Preis- und Bestandsprüfung
+- serverseitiger Stripe-Webhook für bezahlt, fehlgeschlagen, abgelaufen und erstattet
 - Gehärtete Zahlungsstatus- und Provisionsgrenzen in der Datenbank
 - Händler-FAQ, Checklisten und Marketing-Bereich
 
-## Stripe-Konfiguration
+## Produktionsserver
 
-Die Stripe-Edge-Functions verwenden `STRIPE_SECRET_KEY` und `STRIPE_WEBHOOK_SECRET` als Supabase-Edge-Function-Secrets. Diese Werte gehören nicht in GitHub, den Browser-Code oder die normale Datenbank.
+Die produktive Backend-Logik läuft im eigenen Zorqemi-Server-Stack (`server/`) mit PostgreSQL, Node.js und Nginx. Produktionsgeheimnisse bleiben ausschließlich auf dem Server.
 
-Die Webhook-URL lautet:
-
-`https://oansbivjkczjbtxaknks.supabase.co/functions/v1/stripe-webhook`
+Siehe `server/DEPLOY.md` und `.env.example` für die Produktionskonfiguration.
 
 ## Entwicklung
 
-Frontend-Dateien liegen im Repository-Root. Backend-Logik für Zahlungen läuft über Supabase Edge Functions. Datenbankänderungen werden als SQL-Migrationen unter `supabase/migrations/` dokumentiert.
+Frontend-Dateien liegen im Repository-Root. Backend-Logik, Datenbankmigrationen und Checkout liegen im `server/`-Bereich. Die `supabase/`-Struktur bleibt derzeit als Migrations-/Bestandskompatibilität erhalten; sie ist nicht die produktive Checkout-Laufzeit.
 
 ## Wichtige Dateien
 
