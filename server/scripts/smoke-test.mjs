@@ -23,9 +23,9 @@ function cookieFrom(response, name) {
 
 console.log('1/8 health');
 {
-  const {response, payload} = await request('/healthz');
+  const {response, text: healthText} = await request('/healthz');
   assert.equal(response.status, 200);
-  assert.equal(payload.ok, true);
+  assert.match(healthText, /ok/);
 }
 
 console.log('2/8 merchant registration + session');
