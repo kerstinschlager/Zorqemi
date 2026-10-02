@@ -49,6 +49,7 @@ function hashCheckoutAccessToken(token) {
 }
 
 export function getStripe() {
+  if (process.env.ZQ_SMOKE_MODE === 'true') return null;
   const key = String(process.env.STRIPE_SECRET_KEY || '').trim();
   return key ? new Stripe(key) : null;
 }
