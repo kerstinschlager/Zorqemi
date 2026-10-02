@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 const base = process.env.ZQ_SMOKE_BASE || 'http://127.0.0.1:8080';
 const stamp = Date.now();
-const merchantEmail = `smoke-${stamp}@zorqemi.test`;
+const merchantEmail = 'admin@example.com';
 const customerEmail = `customer-${stamp}@zorqemi.test`;
 const password = 'ZorqemiSmoke!2026';
 const slug = `smoke-${stamp}`;
