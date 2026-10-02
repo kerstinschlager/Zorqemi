@@ -22,8 +22,27 @@ jobs:
           STRIPE_SECRET_KEY: sk_test_ci_placeholder
           STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
           INTERNAL_MAINTENANCE_TOKEN: ci-maintenance-token
+          ALLOW_MERCHANT_REGISTRATION: 'true'
         run: docker compose config
       - name: Build API image
         run: docker build -f server/api/Dockerfile .
       - name: Build web image
         run: docker build -t zorqemi-web-check .
+
+      - name: Boot production stack
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+          STRIPE_SECRET_KEY: ''
+          STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+          INTERNAL_MAINTENANCE_TOKEN: ci-maintenance-token
+          ALLOW_MERCHANT_REGISTRATION: 'true'
+        run: |
+          set -euo pipefail
+          docker compose up -d --build
+          trap 'docker compose down -v' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/healthz
+          ZQ_SMOKE_BASE=http://127.0.0.1:8080 node server/scripts/smoke-test.mjs
