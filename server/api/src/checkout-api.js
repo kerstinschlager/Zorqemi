@@ -323,7 +323,7 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
     const { product, variant, quantity, price } = entry;
     const base = index * 7 + 2;
     itemParams.push(product.id, variant?.variant_id || null, product.merchant_id, variant ? product.name+' – '+variant.variant_name : product.name, quantity, price, Number(price) * quantity);
-    return `($1,${base},${base + 1},${base + 2},${base + 3},${base + 4},${base + 5},${base + 6})`;
+    return `($1,$${base},$${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6})`;
   });
   await checkoutClient.query(
     `INSERT INTO checkout_items(checkout_session_id,product_id,variant_id,merchant_id,product_name,quantity,unit_price,total) VALUES ${values.join(',')}`,
