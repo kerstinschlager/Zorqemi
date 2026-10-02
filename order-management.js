@@ -118,7 +118,7 @@
     const carrier = document.querySelector('#carrier-'+id)?.value.trim() || null;
     const tracking = document.querySelector('#tracking-'+id)?.value.trim() || null;
     const trackingUrl = document.querySelector('#tracking-url-'+id)?.value.trim() || null;
-    if (trackingUrl && !/^https?:\\/\\//i.test(trackingUrl)) return alert('Der Tracking-Link muss mit http:// oder https:// beginnen.');
+    if (trackingUrl && !/^https?:\/\//i.test(trackingUrl)) return alert('Der Tracking-Link muss mit http:// oder https:// beginnen.');
     if (window.serverSession && window.merchant && window.serverFetch) {
       const r = await window.serverFetch('/merchant/'+encodeURIComponent(window.merchant.id)+'/orders/'+encodeURIComponent(id)+'/shipping', {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({shipping_carrier:carrier,tracking_number:tracking,tracking_url:trackingUrl})});
       if (!r.response.ok) return alert(r.payload?.error==='invalid_shipping'?'Die Versanddaten sind ungültig.':'Versanddaten konnten nicht gespeichert werden.');
