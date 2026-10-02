@@ -32,10 +32,11 @@ jobs:
       - name: Boot production stack
         env:
           POSTGRES_PASSWORD: ci-only-password
-          STRIPE_SECRET_KEY: ''
+          STRIPE_SECRET_KEY: sk_test_ci_placeholder
           STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
           INTERNAL_MAINTENANCE_TOKEN: ci-maintenance-token
           ALLOW_MERCHANT_REGISTRATION: 'true'
+          ZQ_SMOKE_MODE: 'true'
         run: |
           set -euo pipefail
           docker compose up -d --build
