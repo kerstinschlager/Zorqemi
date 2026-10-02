@@ -2,13 +2,6 @@ name: Deploy Zorqemi server
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'server/**'
-      - 'docker-compose.yml'
-      - '.env.example'
-      - '.github/workflows/server-deploy.yml'
 
 jobs:
   deploy:
