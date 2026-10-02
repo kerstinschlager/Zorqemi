@@ -55,8 +55,11 @@ export async function addCartItem(pool,req,{productId,variantId,quantity}){
     const stock=variantId?Number(row.variant_stock):Number(row.stock);
     if(qty>stock) fail('insufficient_stock',409);
     const cart=await getOrCreateCart(client,{...owner,merchantId:row.merchant_id});
-    if(cart.merchant_id && String(cart.merchant_id)!==String(row.merchant_id)) fail('mixed_merchant_cart',409);
-    if(!cart.merchant_id) await client.query('UPDATE carts SET merchant_id=$1,updated_at=now() WHERE id=$2',[row.merchant_id,cart.id]);
+    if(cart.merchant_id && String(cart.merchant_id)!==String(row.merchant_id)){
+      await client.query('UPDATE carts SET merchant_id=NULL,updated_at=now() WHERE id=$1',[cart.id]);
+    } else if(!cart.merchant_id) {
+      await client.query('UPDATE carts SET merchant_id=$1,updated_at=now() WHERE id=$2',[row.merchant_id,cart.id]);
+    }
     const existing=await client.query('SELECT quantity FROM cart_items WHERE cart_id=$1 AND product_id=$2 AND variant_id IS NOT DISTINCT FROM $3 FOR UPDATE',[cart.id,row.id,variantId||null]);
     const next=Number(existing.rows[0]?.quantity||0)+qty;
     if(next>stock) fail('insufficient_stock',409);
