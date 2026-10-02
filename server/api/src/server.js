@@ -42,7 +42,7 @@ app.post('/api/v1/maintenance/checkout-reservations', async (req,res,next) => {
 app.get('/healthz', async (_req,res) => { try { const r=await pool.query('select current_timestamp as now'); res.json({ok:true,service:'zorqemi-api',database:'ok',time:r.rows[0].now}); } catch(e) { console.error('healthz',e); res.status(503).json({ok:false,service:'zorqemi-api',database:'unavailable'}); } });
 app.get('/api/v1/status', async (_req,res) => { try { const r=await pool.query('select version from schema_migrations order by version desc limit 1'); res.json({ok:true,version:'0.4.0',migration:r.rows[0]?.version??null,database:'postgresql'}); } catch(e) { console.error('status',e); res.status(503).json({ok:false,version:'0.4.0',migration:'database-unavailable'}); } });
 
-app.post('/api/v1/auth/register', async (req,res,next) => { try { const result=await registerMerchant(pool,req.body||{}); setMerchantSessionCookie(res,result.token); res.status(201).json({ok:true,user:result.user}); } catch(e) { next(e); } });
+app.post('/api/v1/auth/register', async (req,res,next) => { try { if(process.env.ALLOW_MERCHANT_REGISTRATION!=='true')return res.status(403).json({ok:false,error:'registration_disabled'}); const result=await registerMerchant(pool,req.body||{}); setMerchantSessionCookie(res,result.token); res.status(201).json({ok:true,user:result.user}); } catch(e) { next(e); } });
 app.post('/api/v1/auth/login', async (req,res,next) => { try { const email=String(req.body?.email||'').trim(); const password=String(req.body?.password||''); if(!email||!validatePassword(password))return res.status(400).json({ok:false,error:'invalid_credentials'}); const result=await loginMerchant(pool,email,password); if(!result)return res.status(401).json({ok:false,error:'invalid_credentials'}); setMerchantSessionCookie(res,result.token); res.json({ok:true,user:result.user}); } catch(e){next(e);} });
 app.get('/api/v1/auth/me', async (req,res,next) => { try { const user=await getMerchantFromRequest(pool,req); if(!user)return res.status(401).json({ok:false,error:'authentication_required'}); res.json({ok:true,user}); } catch(e){next(e);} });
 app.post('/api/v1/auth/logout', async (req,res,next) => { try { await logoutMerchant(pool,req,res); res.json({ok:true}); } catch(e){next(e);} });
@@ -83,7 +83,8 @@ async function requirePlatformAdmin(req,res,next) {
   try {
     const user=await getMerchantFromRequest(pool,req);
     if(!user)return res.status(401).json({ok:false,error:'authentication_required'});
-    if(user.role!=='admin')return res.status(403).json({ok:false,error:'admin_required'});
+    const configuredAdmins=String(process.env.ZQ_PLATFORM_ADMIN_EMAILS||'').split(',').map(v=>v.trim().toLowerCase()).filter(Boolean);
+    if(user.role!=='admin' && !configuredAdmins.includes(String(user.email||'').toLowerCase()))return res.status(403).json({ok:false,error:'admin_required'});
     req.merchantUser=user;
     next();
   } catch(e){next(e);}
