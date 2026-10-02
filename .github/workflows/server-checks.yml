@@ -36,6 +36,7 @@ jobs:
           STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
           INTERNAL_MAINTENANCE_TOKEN: ci-maintenance-token
           ALLOW_MERCHANT_REGISTRATION: 'true'
+          ZQ_PLATFORM_ADMIN_EMAILS: smoke-
           ZQ_SMOKE_MODE: 'true'
         run: |
           set -euo pipefail
