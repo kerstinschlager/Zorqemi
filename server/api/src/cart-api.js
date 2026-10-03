@@ -53,6 +53,10 @@ export async function addCartItem(pool,req,body={}){
   const owner=ownerFromRequest(req);
   const client=await pool.connect();
   try{
+    // Reset any leaked transaction/session state on a pooled connection before
+    // reading availability. This is defensive cleanup only; it changes no data.
+    try{ await client.query('ROLLBACK'); }catch{}
+    try{ await client.query('DISCARD ALL'); }catch{}
     // Read availability before opening the cart transaction. The production
     // database currently shows the product correctly outside the transaction,
     // while the previous in-transaction lookup returned no row.
