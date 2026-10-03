@@ -53,13 +53,14 @@ export async function addCartItem(pool,req,body={}){
   if(normalizedVariantId && !/^[0-9a-f-]{36}$/i.test(normalizedVariantId)) fail('invalid_variant_id',400);
 
   const owner=ownerFromRequest(req);
-  const client=await pool.connect();
+  // Use a brand-new connection for add-to-cart so no previously leased pool
+  // transaction/session state can affect the product/cart statements.
+  const client=new pg.Client({connectionString:process.env.DATABASE_URL});
   try{
-    // Do not wrap the add-to-cart path in an explicit transaction. The live
-    // deployment shows a transaction-snapshot mismatch for products even
-    // though the same database connection can read the row outside BEGIN.
-    // Checkout remains responsible for authoritative availability, pricing and
-    // atomic stock reservation.
+    await client.connect();
+    await client.query('SET search_path TO public');
+    // Cart insertion is deliberately separate from checkout validation.
+    // Checkout is authoritative for active/published state, price and stock.
     const cart=await getOrCreateCart(client,{...owner});
 
     const existing=await client.query(
@@ -89,7 +90,7 @@ export async function addCartItem(pool,req,body={}){
     await client.query('UPDATE carts SET updated_at=now() WHERE id=$1',[cart.id]);
     return getCart(pool,req);
   }finally{
-    client.release();
+    await client.end().catch(()=>{});
   }
 }
 
