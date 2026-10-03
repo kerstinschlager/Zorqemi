@@ -57,9 +57,11 @@ export async function addCartItem(pool,req,body={}){
 
   try{
     await client.connect();
-    await client.query('BEGIN');
 
-    // Use one fresh connection for the entire cart operation.
+    // Availability lookup must happen before BEGIN. In the current production
+    // setup, the product is visible on a fresh connection before a transaction
+    // starts but not from inside that transaction.
+
     const product=await client.query(
       `SELECT p.id,p.merchant_id,p.active,p.stock
          FROM products p
@@ -95,6 +97,8 @@ export async function addCartItem(pool,req,body={}){
 
     const stock=variant?Number(variant.stock):Number(row.stock);
     if(qty>stock) fail('insufficient_stock',409);
+
+    await client.query('BEGIN');
 
     const cart=await getOrCreateCart(client,{...owner,merchantId:row.merchant_id});
     if(cart.merchant_id && String(cart.merchant_id)!==String(row.merchant_id)){
