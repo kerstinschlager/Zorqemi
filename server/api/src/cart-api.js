@@ -43,35 +43,89 @@ export async function addCartItem(pool,req,body={}){
   const quantity=body.quantity;
   const qty=Number(quantity);
   if(!Number.isInteger(qty)||qty<1||qty>99) fail('invalid_quantity',400);
+
+  const normalizedProductId=String(productId ?? '').trim();
+  if(!/^[0-9a-f-]{36}$/i.test(normalizedProductId)) fail('invalid_product_id',400);
+
+  const normalizedVariantId=variantId==null||String(variantId).trim()==='' ? null : String(variantId).trim();
+  if(normalizedVariantId && !/^[0-9a-f-]{36}$/i.test(normalizedVariantId)) fail('invalid_variant_id',400);
+
   const owner=ownerFromRequest(req);
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
+
+    // Lock the product row independently from merchant/variant lookup.
+    // This avoids the previous multi-table SELECT causing product_unavailable
+    // even though the product and published merchant are both present.
     const product=await client.query(
-      `SELECT p.id,p.merchant_id,p.active,p.stock,v.id AS variant_id,v.active AS variant_active,v.stock AS variant_stock
-         FROM products p JOIN merchants m ON m.id=p.merchant_id
-         LEFT JOIN product_variants v ON v.id=$2 AND v.product_id=p.id
-        WHERE p.id=$1 AND p.active=true AND m.published=true
-        FOR UPDATE OF p`,[String(productId),variantId?String(variantId):null]);
+      `SELECT p.id,p.merchant_id,p.active,p.stock
+         FROM products p
+        WHERE p.id=$1::uuid AND p.active=true
+        FOR UPDATE`,
+      [normalizedProductId]
+    );
     const row=product.rows[0];
-    if(!row || (variantId && (!row.variant_id||!row.variant_active))) fail('product_unavailable',409);
-    const stock=variantId?Number(row.variant_stock):Number(row.stock);
+    if(!row) fail('product_unavailable',409);
+
+    const merchant=await client.query(
+      `SELECT id,published FROM merchants WHERE id=$1::uuid LIMIT 1`,
+      [String(row.merchant_id)]
+    );
+    if(!merchant.rows[0] || merchant.rows[0].published!==true) fail('product_unavailable',409);
+
+    let variant=null;
+    if(normalizedVariantId){
+      const variantResult=await client.query(
+        `SELECT id,active,stock
+           FROM product_variants
+          WHERE id=$1::uuid AND product_id=$2::uuid
+          LIMIT 1
+          FOR UPDATE`,
+        [normalizedVariantId,normalizedProductId]
+      );
+      variant=variantResult.rows[0];
+      if(!variant || variant.active!==true) fail('product_unavailable',409);
+    }
+
+    const stock=variant?Number(variant.stock):Number(row.stock);
     if(qty>stock) fail('insufficient_stock',409);
+
     const cart=await getOrCreateCart(client,{...owner,merchantId:row.merchant_id});
     if(cart.merchant_id && String(cart.merchant_id)!==String(row.merchant_id)){
       await client.query('UPDATE carts SET merchant_id=NULL,updated_at=now() WHERE id=$1',[cart.id]);
     } else if(!cart.merchant_id) {
       await client.query('UPDATE carts SET merchant_id=$1,updated_at=now() WHERE id=$2',[row.merchant_id,cart.id]);
     }
-    const existing=await client.query('SELECT quantity FROM cart_items WHERE cart_id=$1 AND product_id=$2 AND variant_id IS NOT DISTINCT FROM $3 FOR UPDATE',[cart.id,row.id,variantId||null]);
+
+    const existing=await client.query(
+      'SELECT quantity FROM cart_items WHERE cart_id=$1 AND product_id=$2 AND variant_id IS NOT DISTINCT FROM $3 FOR UPDATE',
+      [cart.id,row.id,normalizedVariantId]
+    );
     const next=Number(existing.rows[0]?.quantity||0)+qty;
     if(next>stock) fail('insufficient_stock',409);
-    if(existing.rows[0]) await client.query('UPDATE cart_items SET quantity=$1,updated_at=now() WHERE cart_id=$2 AND product_id=$3 AND variant_id IS NOT DISTINCT FROM $4',[next,cart.id,row.id,variantId||null]);
-    else await client.query('INSERT INTO cart_items(cart_id,product_id,variant_id,quantity) VALUES($1,$2,$3,$4)',[cart.id,row.id,variantId||null,qty]);
+
+    if(existing.rows[0]) {
+      await client.query(
+        'UPDATE cart_items SET quantity=$1,updated_at=now() WHERE cart_id=$2 AND product_id=$3 AND variant_id IS NOT DISTINCT FROM $4',
+        [next,cart.id,row.id,normalizedVariantId]
+      );
+    } else {
+      await client.query(
+        'INSERT INTO cart_items(cart_id,product_id,variant_id,quantity) VALUES($1,$2,$3,$4)',
+        [cart.id,row.id,normalizedVariantId,qty]
+      );
+    }
+
     await client.query('UPDATE carts SET updated_at=now() WHERE id=$1',[cart.id]);
     await client.query('COMMIT');
     return getCart(pool,req);
-  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+  }catch(e){
+    await client.query('ROLLBACK');
+    throw e;
+  }finally{
+    client.release();
+  }
 }
 
 export async function updateCartItem(pool,req,itemId,quantity){
