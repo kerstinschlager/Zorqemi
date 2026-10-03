@@ -53,27 +53,24 @@ export async function addCartItem(pool,req,body={}){
   if(normalizedVariantId && !/^[0-9a-f-]{36}$/i.test(normalizedVariantId)) fail('invalid_variant_id',400);
 
   const owner=ownerFromRequest(req);
+  const client=new pg.Client({connectionString:process.env.DATABASE_URL});
 
-  // Availability lookup uses an isolated PostgreSQL client. This avoids
-  // relying on a potentially contaminated pooled connection for the initial
-  // product/merchant/variant lookup.
-  const probe=new pg.Client({connectionString:process.env.DATABASE_URL});
-  let row=null;
-  let variant=null;
   try{
-    await probe.connect();
+    await client.connect();
+    await client.query('BEGIN');
 
-    const product=await probe.query(
+    // Use one fresh connection for the entire cart operation.
+    const product=await client.query(
       `SELECT p.id,p.merchant_id,p.active,p.stock
          FROM products p
         WHERE p.id::text=$1
         LIMIT 1`,
       [normalizedProductId]
     );
-    row=product.rows[0];
+    const row=product.rows[0];
     if(!row || row.active!==true) fail('product_unavailable',409);
 
-    const merchant=await probe.query(
+    const merchant=await client.query(
       `SELECT id,published
          FROM merchants
         WHERE id::text=$1
@@ -82,28 +79,22 @@ export async function addCartItem(pool,req,body={}){
     );
     if(!merchant.rows[0] || merchant.rows[0].published!==true) fail('product_unavailable',409);
 
+    let variant=null;
     if(normalizedVariantId){
-      const variantResult=await probe.query(
+      const variantResult=await client.query(
         `SELECT id,active,stock
            FROM product_variants
-          WHERE id::text=$1
-            AND product_id::text=$2
-          LIMIT 1`,
+          WHERE id::text=$1 AND product_id::text=$2
+          LIMIT 1
+          FOR UPDATE`,
         [normalizedVariantId,normalizedProductId]
       );
       variant=variantResult.rows[0];
       if(!variant || variant.active!==true) fail('product_unavailable',409);
     }
-  }finally{
-    await probe.end().catch(()=>{});
-  }
 
-  const stock=variant?Number(variant.stock):Number(row.stock);
-  if(qty>stock) fail('insufficient_stock',409);
-
-  const client=await pool.connect();
-  try{
-    await client.query('BEGIN');
+    const stock=variant?Number(variant.stock):Number(row.stock);
+    if(qty>stock) fail('insufficient_stock',409);
 
     const cart=await getOrCreateCart(client,{...owner,merchantId:row.merchant_id});
     if(cart.merchant_id && String(cart.merchant_id)!==String(row.merchant_id)){
@@ -138,7 +129,7 @@ export async function addCartItem(pool,req,body={}){
     try{ await client.query('ROLLBACK'); }catch{}
     throw e;
   }finally{
-    client.release();
+    await client.end().catch(()=>{});
   }
 }
 
