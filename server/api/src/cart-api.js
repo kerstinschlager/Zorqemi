@@ -53,15 +53,9 @@ export async function addCartItem(pool,req,body={}){
   const owner=ownerFromRequest(req);
   const client=await pool.connect();
   try{
-    await client.query('BEGIN');
-
-    // Read the product without row locking. Stock is re-validated at checkout,
-    // so cart insertion does not need to hold a product row lock here.
-    console.log('cart product lookup', {
-      productId: normalizedProductId,
-      productIdJson: JSON.stringify(normalizedProductId),
-      customerId: owner.customerId,
-    });
+    // Read availability before opening the cart transaction. The production
+    // database currently shows the product correctly outside the transaction,
+    // while the previous in-transaction lookup returned no row.
     const product=await client.query(
       `SELECT p.id,p.merchant_id,p.active,p.stock
          FROM public.products AS p
@@ -69,15 +63,14 @@ export async function addCartItem(pool,req,body={}){
         LIMIT 1`,
       [normalizedProductId]
     );
-    console.log('cart product lookup result', {
-      rowCount: product.rowCount,
-      rows: product.rows.map(r => ({id:String(r.id),merchant_id:String(r.merchant_id),active:r.active,stock:r.stock}))
-    });
     const row=product.rows[0];
     if(!row || row.active!==true) fail('product_unavailable',409);
 
     const merchant=await client.query(
-      `SELECT id,published FROM public.merchants WHERE id::text=$1 LIMIT 1`,
+      `SELECT id,published
+         FROM public.merchants
+        WHERE id::text=$1
+        LIMIT 1`,
       [String(row.merchant_id)]
     );
     if(!merchant.rows[0] || merchant.rows[0].published!==true) fail('product_unavailable',409);
@@ -86,10 +79,10 @@ export async function addCartItem(pool,req,body={}){
     if(normalizedVariantId){
       const variantResult=await client.query(
         `SELECT id,active,stock
-           FROM product_variants
-          WHERE id=$1::uuid AND product_id=$2::uuid
-          LIMIT 1
-          FOR UPDATE`,
+           FROM public.product_variants
+          WHERE id::text=$1
+            AND product_id::text=$2
+          LIMIT 1`,
         [normalizedVariantId,normalizedProductId]
       );
       variant=variantResult.rows[0];
@@ -98,6 +91,8 @@ export async function addCartItem(pool,req,body={}){
 
     const stock=variant?Number(variant.stock):Number(row.stock);
     if(qty>stock) fail('insufficient_stock',409);
+
+    await client.query('BEGIN');
 
     const cart=await getOrCreateCart(client,{...owner,merchantId:row.merchant_id});
     if(cart.merchant_id && String(cart.merchant_id)!==String(row.merchant_id)){
@@ -129,11 +124,9 @@ export async function addCartItem(pool,req,body={}){
     await client.query('COMMIT');
     return getCart(pool,req);
   }catch(e){
-    await client.query('ROLLBACK');
+    try{ await client.query('ROLLBACK'); }catch{}
     throw e;
-  }finally{
-    client.release();
-  }
+  }finally{ client.release(); }
 }
 
 export async function updateCartItem(pool,req,itemId,quantity){
