@@ -55,11 +55,11 @@ export async function addCartItem(pool,req,body={}){
   const owner=ownerFromRequest(req);
   const client=await pool.connect();
   try{
-    await client.query('BEGIN');
-
-    // A cart is allowed to contain an item before checkout-time availability
-    // validation. Checkout re-reads active/published state, price and stock and
-    // performs the actual stock reservation atomically.
+    // Do not wrap the add-to-cart path in an explicit transaction. The live
+    // deployment shows a transaction-snapshot mismatch for products even
+    // though the same database connection can read the row outside BEGIN.
+    // Checkout remains responsible for authoritative availability, pricing and
+    // atomic stock reservation.
     const cart=await getOrCreateCart(client,{...owner});
 
     const existing=await client.query(
@@ -69,33 +69,28 @@ export async function addCartItem(pool,req,body={}){
     const next=Number(existing.rows[0]?.quantity||0)+qty;
     if(next>99) fail('invalid_quantity',400);
 
-    if(existing.rows[0]) {
-      await client.query(
-        'UPDATE cart_items SET quantity=$1,updated_at=now() WHERE cart_id=$2 AND product_id=$3 AND variant_id IS NOT DISTINCT FROM $4',
-        [next,cart.id,normalizedProductId,normalizedVariantId]
-      );
-    } else {
-      const inserted=await client.query(
-        `INSERT INTO cart_items(cart_id,product_id,variant_id,quantity)
-           SELECT $1,p.id,$3,$4
-             FROM public.products p
-            WHERE p.id::text=$2
-           RETURNING id`,
-        [cart.id,normalizedProductId,normalizedVariantId,qty]
-      );
-      if(!inserted.rowCount) fail('product_unavailable',409);
+    try{
+      if(existing.rows[0]) {
+        await client.query(
+          'UPDATE cart_items SET quantity=$1,updated_at=now() WHERE cart_id=$2 AND product_id=$3 AND variant_id IS NOT DISTINCT FROM $4',
+          [next,cart.id,normalizedProductId,normalizedVariantId]
+        );
+      } else {
+        await client.query(
+          'INSERT INTO cart_items(cart_id,product_id,variant_id,quantity) VALUES($1,$2,$3,$4)',
+          [cart.id,normalizedProductId,normalizedVariantId,qty]
+        );
+      }
+    }catch(e){
+      if(e?.code==='23503') fail('product_unavailable',409);
+      throw e;
     }
 
     await client.query('UPDATE carts SET updated_at=now() WHERE id=$1',[cart.id]);
-    await client.query('COMMIT');
-  }catch(e){
-    try{ await client.query('ROLLBACK'); }catch{}
-    throw e;
+    return getCart(pool,req);
   }finally{
     client.release();
   }
-
-  return getCart(pool,req);
 }
 
 export async function updateCartItem(pool,req,itemId,quantity){
