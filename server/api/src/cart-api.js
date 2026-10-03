@@ -57,6 +57,11 @@ export async function addCartItem(pool,req,body={}){
 
     // Read the product without row locking. Stock is re-validated at checkout,
     // so cart insertion does not need to hold a product row lock here.
+    console.log('cart product lookup', {
+      productId: normalizedProductId,
+      productIdJson: JSON.stringify(normalizedProductId),
+      customerId: owner.customerId,
+    });
     const product=await client.query(
       `SELECT p.id,p.merchant_id,p.active,p.stock
          FROM products p
@@ -64,6 +69,10 @@ export async function addCartItem(pool,req,body={}){
         LIMIT 1`,
       [normalizedProductId]
     );
+    console.log('cart product lookup result', {
+      rowCount: product.rowCount,
+      rows: product.rows.map(r => ({id:String(r.id),merchant_id:String(r.merchant_id),active:r.active,stock:r.stock}))
+    });
     const row=product.rows[0];
     if(!row || row.active!==true) fail('product_unavailable',409);
 
