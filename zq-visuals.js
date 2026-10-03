@@ -6,7 +6,7 @@
     ['Wohnen & Deko','https://images.unsplash.com/photo-1618220179428-22790b461013?auto=format&fit=crop&w=900&q=82'],
     ['Elektronik','https://images.unsplash.com/photo-1468495244123-6c6c332eeece?auto=format&fit=crop&w=900&q=82'],
     ['Sport & Freizeit','https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=900&q=82'],
-    ['Personalisierte Produkte','https://images.unsplash.com/photo-1561070791-2526d30994b5?auto=format&fit=crop&w=900&q=82'],
+    ['Personalisierte Produkte','https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=900&q=82'],
     ['Digitale Produkte','https://images.unsplash.com/photo-1558655146-d09347e92766?auto=format&fit=crop&w=900&q=82']
   ];
 
@@ -21,9 +21,9 @@
     .zq-visual-card:hover{transform:translateY(-4px);border-color:rgba(72,255,190,.75);box-shadow:0 18px 42px rgba(0,0,0,.28)}
     .zq-visual-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.78;transition:transform .35s ease,opacity .25s ease}
     .zq-visual-card:hover img{transform:scale(1.05);opacity:.9}
-    .zq-visual-card:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.02) 15%,rgba(0,0,0,.78) 100%);pointer-events:none}
-    .zq-visual-label{position:absolute;z-index:2;left:16px;right:12px;bottom:14px;font-weight:800;font-size:17px;line-height:1.15;letter-spacing:.01em;color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.95)}
-    .zq-visual-label small{display:block;color:#65ffd0;font-size:10px;letter-spacing:.16em;margin-bottom:5px}
+    .zq-visual-card:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,10,18,.08) 0%,rgba(7,10,18,.18) 38%,rgba(7,10,18,.9) 100%);pointer-events:none}
+    .zq-visual-label{position:absolute;z-index:2;left:16px;right:12px;bottom:14px;font-weight:800;font-size:17px;line-height:1.15;letter-spacing:.01em;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.98)}
+    .zq-visual-label small{display:block;color:#65ffd0;background:rgba(4,15,18,.72);width:max-content;padding:3px 7px;border-radius:999px;font-size:10px;letter-spacing:.16em;margin-bottom:5px}
     @media(max-width:900px){.zq-visual-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.zq-visual-card{min-height:170px}}
     @media(max-width:520px){.zq-visual-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.zq-visual-card{min-height:145px;border-radius:15px}.zq-visual-label{font-size:14px;left:12px;bottom:11px}}
     .hero{position:relative;overflow:hidden}
