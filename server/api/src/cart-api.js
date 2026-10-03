@@ -69,21 +69,21 @@ export async function addCartItem(pool,req,body={}){
     const next=Number(existing.rows[0]?.quantity||0)+qty;
     if(next>99) fail('invalid_quantity',400);
 
-    try{
-      if(existing.rows[0]) {
-        await client.query(
-          'UPDATE cart_items SET quantity=$1,updated_at=now() WHERE cart_id=$2 AND product_id=$3 AND variant_id IS NOT DISTINCT FROM $4',
-          [next,cart.id,normalizedProductId,normalizedVariantId]
-        );
-      } else {
-        await client.query(
-          'INSERT INTO cart_items(cart_id,product_id,variant_id,quantity) VALUES($1,$2,$3,$4)',
-          [cart.id,normalizedProductId,normalizedVariantId,qty]
-        );
-      }
-    }catch(e){
-      if(e?.code==='23503') fail('product_unavailable',409);
-      throw e;
+    if(existing.rows[0]) {
+      await client.query(
+        'UPDATE cart_items SET quantity=$1,updated_at=now() WHERE cart_id=$2 AND product_id=$3 AND variant_id IS NOT DISTINCT FROM $4',
+        [next,cart.id,normalizedProductId,normalizedVariantId]
+      );
+    } else {
+      const inserted=await client.query(
+        `INSERT INTO cart_items(cart_id,product_id,variant_id,quantity)
+           SELECT $1,p.id,$3,$4
+             FROM products AS p
+            WHERE p.id::text=$2
+           RETURNING id`,
+        [cart.id,normalizedProductId,normalizedVariantId,qty]
+      );
+      if(!inserted.rowCount) fail('product_unavailable',409);
     }
 
     await client.query('UPDATE carts SET updated_at=now() WHERE id=$1',[cart.id]);
