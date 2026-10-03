@@ -75,15 +75,15 @@ export async function addCartItem(pool,req,body={}){
         [next,cart.id,normalizedProductId,normalizedVariantId]
       );
     } else {
-      try{
-        await client.query(
-          'INSERT INTO cart_items(cart_id,product_id,variant_id,quantity) VALUES($1,$2,$3,$4)',
-          [cart.id,normalizedProductId,normalizedVariantId,qty]
-        );
-      }catch(e){
-        if(e?.code==='23503') fail('product_unavailable',409);
-        throw e;
-      }
+      const inserted=await client.query(
+        `INSERT INTO cart_items(cart_id,product_id,variant_id,quantity)
+           SELECT $1,p.id,$3,$4
+             FROM public.products p
+            WHERE p.id::text=$2
+           RETURNING id`,
+        [cart.id,normalizedProductId,normalizedVariantId,qty]
+      );
+      if(!inserted.rowCount) fail('product_unavailable',409);
     }
 
     await client.query('UPDATE carts SET updated_at=now() WHERE id=$1',[cart.id]);
