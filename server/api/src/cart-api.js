@@ -64,7 +64,7 @@ export async function addCartItem(pool,req,body={}){
     });
     const product=await client.query(
       `SELECT p.id,p.merchant_id,p.active,p.stock
-         FROM products p
+         FROM public.products AS p
         WHERE p.id::text=$1
         LIMIT 1`,
       [normalizedProductId]
@@ -77,7 +77,7 @@ export async function addCartItem(pool,req,body={}){
     if(!row || row.active!==true) fail('product_unavailable',409);
 
     const merchant=await client.query(
-      `SELECT id,published FROM merchants WHERE id=$1::uuid LIMIT 1`,
+      `SELECT id,published FROM public.merchants WHERE id::text=$1 LIMIT 1`,
       [String(row.merchant_id)]
     );
     if(!merchant.rows[0] || merchant.rows[0].published!==true) fail('product_unavailable',409);
