@@ -55,14 +55,12 @@ export async function addCartItem(pool,req,body={}){
   try{
     await client.query('BEGIN');
 
-    // Lock the product row independently from merchant/variant lookup.
-    // This avoids the previous multi-table SELECT causing product_unavailable
-    // even though the product and published merchant are both present.
+    // Read the product without row locking. Stock is re-validated at checkout,
+    // so cart insertion does not need to hold a product row lock here.
     const product=await client.query(
       `SELECT p.id,p.merchant_id,p.active,p.stock
          FROM products p
-        WHERE p.id=$1::uuid AND p.active=true
-        FOR UPDATE`,
+        WHERE p.id=$1::uuid AND p.active=true`,
       [normalizedProductId]
     );
     const row=product.rows[0];
