@@ -53,88 +53,49 @@ export async function addCartItem(pool,req,body={}){
   if(normalizedVariantId && !/^[0-9a-f-]{36}$/i.test(normalizedVariantId)) fail('invalid_variant_id',400);
 
   const owner=ownerFromRequest(req);
-  const client=new pg.Client({connectionString:process.env.DATABASE_URL});
-
+  const client=await pool.connect();
   try{
-    await client.connect();
-
-    // Availability lookup must happen before BEGIN. In the current production
-    // setup, the product is visible on a fresh connection before a transaction
-    // starts but not from inside that transaction.
-
-    const product=await client.query(
-      `SELECT p.id,p.merchant_id,p.active,p.stock
-         FROM products p
-        WHERE p.id::text=$1
-        LIMIT 1`,
-      [normalizedProductId]
-    );
-    const row=product.rows[0];
-    if(!row || row.active!==true) fail('product_unavailable',409);
-
-    const merchant=await client.query(
-      `SELECT id,published
-         FROM merchants
-        WHERE id::text=$1
-        LIMIT 1`,
-      [String(row.merchant_id)]
-    );
-    if(!merchant.rows[0] || merchant.rows[0].published!==true) fail('product_unavailable',409);
-
-    let variant=null;
-    if(normalizedVariantId){
-      const variantResult=await client.query(
-        `SELECT id,active,stock
-           FROM product_variants
-          WHERE id::text=$1 AND product_id::text=$2
-          LIMIT 1
-          FOR UPDATE`,
-        [normalizedVariantId,normalizedProductId]
-      );
-      variant=variantResult.rows[0];
-      if(!variant || variant.active!==true) fail('product_unavailable',409);
-    }
-
-    const stock=variant?Number(variant.stock):Number(row.stock);
-    if(qty>stock) fail('insufficient_stock',409);
-
     await client.query('BEGIN');
 
-    const cart=await getOrCreateCart(client,{...owner,merchantId:row.merchant_id});
-    if(cart.merchant_id && String(cart.merchant_id)!==String(row.merchant_id)){
-      await client.query('UPDATE carts SET merchant_id=NULL,updated_at=now() WHERE id=$1',[cart.id]);
-    } else if(!cart.merchant_id) {
-      await client.query('UPDATE carts SET merchant_id=$1,updated_at=now() WHERE id=$2',[row.merchant_id,cart.id]);
-    }
+    // A cart is allowed to contain an item before checkout-time availability
+    // validation. Checkout re-reads active/published state, price and stock and
+    // performs the actual stock reservation atomically.
+    const cart=await getOrCreateCart(client,{...owner});
 
     const existing=await client.query(
       'SELECT quantity FROM cart_items WHERE cart_id=$1 AND product_id=$2 AND variant_id IS NOT DISTINCT FROM $3 FOR UPDATE',
-      [cart.id,row.id,normalizedVariantId]
+      [cart.id,normalizedProductId,normalizedVariantId]
     );
     const next=Number(existing.rows[0]?.quantity||0)+qty;
-    if(next>stock) fail('insufficient_stock',409);
+    if(next>99) fail('invalid_quantity',400);
 
     if(existing.rows[0]) {
       await client.query(
         'UPDATE cart_items SET quantity=$1,updated_at=now() WHERE cart_id=$2 AND product_id=$3 AND variant_id IS NOT DISTINCT FROM $4',
-        [next,cart.id,row.id,normalizedVariantId]
+        [next,cart.id,normalizedProductId,normalizedVariantId]
       );
     } else {
-      await client.query(
-        'INSERT INTO cart_items(cart_id,product_id,variant_id,quantity) VALUES($1,$2,$3,$4)',
-        [cart.id,row.id,normalizedVariantId,qty]
-      );
+      try{
+        await client.query(
+          'INSERT INTO cart_items(cart_id,product_id,variant_id,quantity) VALUES($1,$2,$3,$4)',
+          [cart.id,normalizedProductId,normalizedVariantId,qty]
+        );
+      }catch(e){
+        if(e?.code==='23503') fail('product_unavailable',409);
+        throw e;
+      }
     }
 
     await client.query('UPDATE carts SET updated_at=now() WHERE id=$1',[cart.id]);
     await client.query('COMMIT');
-    return getCart(pool,req);
   }catch(e){
     try{ await client.query('ROLLBACK'); }catch{}
     throw e;
   }finally{
-    await client.end().catch(()=>{});
+    client.release();
   }
+
+  return getCart(pool,req);
 }
 
 export async function updateCartItem(pool,req,itemId,quantity){
