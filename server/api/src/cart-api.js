@@ -60,11 +60,12 @@ export async function addCartItem(pool,req,body={}){
     const product=await client.query(
       `SELECT p.id,p.merchant_id,p.active,p.stock
          FROM products p
-        WHERE p.id=$1::uuid AND p.active=true`,
+        WHERE p.id::text=$1
+        LIMIT 1`,
       [normalizedProductId]
     );
     const row=product.rows[0];
-    if(!row) fail('product_unavailable',409);
+    if(!row || row.active!==true) fail('product_unavailable',409);
 
     const merchant=await client.query(
       `SELECT id,published FROM merchants WHERE id=$1::uuid LIMIT 1`,
