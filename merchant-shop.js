@@ -6,13 +6,49 @@
   const safeUrl=v=>{try{const u=new URL(String(v||''),location.href);return /^https?:$/.test(u.protocol)?u.href:''}catch(e){return ''}};
   const safeColor=v=>{const s=String(v||'').trim();return /^#[0-9a-fA-F]{3,8}$/.test(s)?s:''};
   const money=n=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Number(n)||0);
-  const params=new URLSearchParams(location.search),slug=params.get('shop');
-  if(!slug)return;
+  const params=new URLSearchParams(location.search),querySlug=params.get('shop');
   async function init(){
     const shopView=document.querySelector('#shopView'),grid=document.querySelector('#productGrid');
     if(!shopView||!grid)return;
-    const {data:merchant,error}=await db.from('public_merchants').select('id,shop_name,slug,description,logo_url,shop_url').eq('slug',slug).maybeSingle();
-    if(error||!merchant){document.title='Händler-Shop | Zorqemi';grid.innerHTML='<div class="merchant-shop-empty"><strong>Dieser Händler-Shop ist nicht verfügbar.</strong><span>Der Link ist möglicherweise abgelaufen oder der Shop wurde nicht veröffentlicht.</span><a class="secondary" href="'+esc(location.pathname)+'#shop">← Zur Händlerübersicht</a></div>';return;}
+    const host=location.hostname.toLowerCase().replace(/^www\./,'');
+    let merchant=null, merchantProducts=null;
+    if(host.endsWith('.zorqemi.de') && host!=='zorqemi.de'){
+      try{
+        const [sr,pr]=await Promise.all([
+          fetch('/api/v1/shop',{headers:{Accept:'application/json'}}),
+          fetch('/api/v1/shop/products',{headers:{Accept:'application/json'}})
+        ]);
+        const sp=await sr.json().catch(()=>({})), pp=await pr.json().catch(()=>({}));
+        if(sr.ok&&sp?.ok&&sp.shop){
+          merchant={...sp.shop,shop_name:sp.shop.name||sp.shop.shop_name||sp.shop.shop_slug,slug:sp.shop.slug||sp.shop.shop_slug};
+          merchantProducts=Array.isArray(pp.products)?pp.products:null;
+        }
+      }catch(e){console.warn('merchant subdomain API unavailable',e)}
+    } else {
+      const slug=String(querySlug||'').trim().toLowerCase();
+      if(!slug)return;
+      try{
+        const r=await fetch('/api/v1/marketplace/merchants',{headers:{Accept:'application/json'}});
+        const p=await r.json().catch(()=>({}));
+        if(r.ok&&p?.ok&&Array.isArray(p.merchants)){
+          const m=p.merchants.find(x=>String(x.shop_slug||x.slug||'').toLowerCase()===slug);
+          if(m)merchant={...m,shop_name:m.shop_name||m.name,slug:m.slug||m.shop_slug};
+          if(merchant){
+            const pr=await fetch('/api/v1/marketplace/products',{headers:{Accept:'application/json'}});
+            const pp=await pr.json().catch(()=>({}));
+            if(pr.ok&&pp?.ok&&Array.isArray(pp.products)) merchantProducts=pp.products.filter(x=>String(x.merchant_id)===String(merchant.id));
+          }
+        }
+      }catch(e){console.warn('merchant marketplace API unavailable',e)}
+    }
+    if(!merchant){
+      const slug=String(querySlug||'').trim().toLowerCase();
+      if(slug){
+        const {data,error}=await db.from('public_merchants').select('id,shop_name,slug,description,logo_url,shop_url').eq('slug',slug).maybeSingle();
+        if(!error)merchant=data||null;
+      }
+    }
+    if(!merchant){document.title='Händler-Shop | Zorqemi';grid.innerHTML='<div class="merchant-shop-empty"><strong>Dieser Händler-Shop ist nicht verfügbar.</strong><span>Der Link ist möglicherweise abgelaufen oder der Shop wurde nicht veröffentlicht.</span><a class="secondary" href="'+esc(location.pathname)+'#shop">← Zur Händlerübersicht</a></div>';return;}
     document.title=`${merchant.shop_name} | Zorqemi`;
     let meta=document.querySelector('meta[name="description"]');
     if(!meta){meta=document.createElement('meta');meta.name='description';document.head.appendChild(meta)}
@@ -40,9 +76,14 @@
     }
     const toolbar=shopView.querySelector('.toolbar');
     if(toolbar&&!toolbar.previousElementSibling?.classList.contains('merchant-shop-title')){const title=document.createElement('div');title.className='merchant-shop-title';title.innerHTML=`<strong>Produkte von ${esc(merchant.shop_name)}</strong>`;toolbar.parentNode.insertBefore(title,toolbar);}
-    const {data:rows,error:prodError}=await db.from('products').select('id,name,slug,description,price,stock,image_url,created_at,category_id').eq('active',true).eq('merchant_id',merchant.id).order('created_at',{ascending:false});
-    if(prodError){grid.innerHTML='<div class="merchant-shop-empty"><strong>Produkte konnten nicht geladen werden.</strong><span>Bitte versuche es später erneut.</span></div>';return;}
-    const products=rows||[];
+    let products=[];
+    if(Array.isArray(merchantProducts)){
+      products=merchantProducts.map(p=>({...p,category_id:p.category_id||null}));
+    } else {
+      const {data:rows,error:prodError}=await db.from('products').select('id,name,slug,description,price,stock,image_url,created_at,category_id').eq('active',true).eq('merchant_id',merchant.id).order('created_at',{ascending:false});
+      if(prodError){grid.innerHTML='<div class="merchant-shop-empty"><strong>Produkte konnten nicht geladen werden.</strong><span>Bitte versuche es später erneut.</span></div>';return;}
+      products=rows||[];
+    }
     const ids=[...new Set(products.map(p=>p.category_id).filter(Boolean))];let cats={};
     if(ids.length){const r=await db.from('categories').select('id,name').in('id',ids);if(!r.error)(r.data||[]).forEach(c=>cats[c.id]=c.name)}
     const render=()=>{
