@@ -118,10 +118,20 @@ async function syncCartItem(item,quantity){
   }catch(e){console.warn('server cart sync failed',e);return false}
 }
 window.addToCart=async id=>{
-  const p=products.find(x=>String(x.id)===String(id))||window.zqPublicShopProducts?.find(x=>String(x.id)===String(id));if(!p||p.stock<1)return;
+  let p=products.find(x=>String(x.id)===String(id))||window.zqPublicShopProducts?.find(x=>String(x.id)===String(id));
+  if(!p){
+    const btn=[...document.querySelectorAll('.product .add[data-zq-product-id]')].find(x=>String(x.dataset.zqProductId)===String(id));
+    if(btn){
+      p={id:String(id),name:btn.dataset.zqProductName||btn.closest('.product')?.querySelector('h3')?.textContent?.trim()||'Produkt',price:Number(btn.dataset.zqProductPrice)||0,stock:Number(btn.dataset.zqProductStock)||0,image_url:btn.closest('.product')?.querySelector('img')?.src||'',category:'Produkte'};
+      window.zqPublicShopProducts=[...(window.zqPublicShopProducts||[]).filter(x=>String(x.id)!==String(id)),p];
+      products=[...products.filter(x=>String(x.id)!==String(id)),p];
+    }
+  }
+  const stock=Number(p?.stock)||0;
+  if(!p||stock<1)return toast('Produkt ist nicht verfügbar.');
   const i=cart.find(x=>String(x.id)===String(id)&&!x.variantId);
-  const qty=(i?.qty||0)+1;if(qty>p.stock)return toast('Nicht mehr auf Lager');
-  if(i)i.qty=qty;else cart.push({id,qty});
+  const qty=(Number(i?.qty)||0)+1;if(qty>stock)return toast('Nicht mehr auf Lager');
+  if(i)i.qty=qty;else cart.push({id:p.id,qty:1});
   saveCart();updateCartCount();
   if(customerSession)await syncCartItem(i||cart[cart.length-1],qty);
   toast('Produkt hinzugefügt');
