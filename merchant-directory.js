@@ -8,6 +8,8 @@
   function loadProductDetail(){if(document.querySelector('script[data-product-detail]'))return;const s=document.createElement('script');s.src='product-detail.js?v=20260913-1';s.dataset.productDetail='1';document.body.appendChild(s)}
   function mount(){
     loadProductDetail();
+    const host=location.hostname.toLowerCase().replace(/^www\./,'');
+    if(host.endsWith('.zorqemi.de') && host!=='zorqemi.de'){loadMerchantShop();return;}
     if(new URLSearchParams(location.search).get('shop')){loadMerchantShop();return;}
     if(document.querySelector('#merchantDirectory'))return;
     const shop=document.querySelector('#shopView');
