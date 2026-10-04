@@ -42,6 +42,6 @@
     if(error){console.error(error);grid.innerHTML='<div class="merchant-empty"><strong>Händler konnten nicht geladen werden.</strong><span class="muted">Bitte später erneut versuchen.</span></div>';return}
     merchants=data||[];render();
   }
-  function loadFilterScript(){if(new URLSearchParams(location.search).get('shop'))return;if(document.querySelector('script[data-marketplace-filters]'))return;const s=document.createElement('script');s.src='marketplace-filters.js';s.dataset.marketplaceFilters='1';document.body.appendChild(s)}
+  function loadFilterScript(){const host=location.hostname.toLowerCase().replace(/^www\\./,'');if(host.endsWith('.zorqemi.de')&&host!=='zorqemi.de')return;if(new URLSearchParams(location.search).get('shop'))return;if(document.querySelector('script[data-marketplace-filters]'))return;const s=document.createElement('script');s.src='marketplace-filters.js';s.dataset.marketplaceFilters='1';document.body.appendChild(s)}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{setTimeout(mount,700);setTimeout(loadFilterScript,1200)});else{setTimeout(mount,700);setTimeout(loadFilterScript,1200)}
 })();
