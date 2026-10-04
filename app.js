@@ -43,10 +43,23 @@ if(authMode==='login'){
       $('#authModal').classList.add('hidden');
       return refreshAuth();
     }
-    if(s.response.status===401)return toast('E-Mail oder Passwort ist ungültig.');
     if(s.response.status===400)return toast('Bitte E-Mail und Passwort eingeben.');
   }catch(e){console.warn('merchant server login failed',e)}
-  return toast('Anmeldung momentan nicht möglich.');
+  try{
+    const {data,error}=await db.auth.signInWithPassword({email,password});
+    if(!error&&data?.user){
+      currentUser=data.user;serverSession=false;customerSession=false;
+      await loadMerchant();
+      toast('Erfolgreich angemeldet');
+      $('#authModal').classList.add('hidden');
+      return refreshAuth();
+    }
+    if(error){
+      const msg=error.message||'';
+      if(/email not confirmed/i.test(msg))return toast('Bitte bestätige zuerst deine E-Mail-Adresse.');
+    }
+  }catch(e){console.warn('supabase merchant login fallback failed',e)}
+  return toast('E-Mail oder Passwort ist ungültig.');
 }else{
   const slug=slugify(name)||slugify(email.split('@')[0])||'shop';
   try{
