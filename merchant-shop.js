@@ -174,6 +174,23 @@
       @media(max-width:700px){.merchant-content-blocks{grid-template-columns:1fr}.merchant-banner{min-height:140px}}
     `;document.head.appendChild(style);
     render();
+    // Merchant shop owns cart rendering so no global app state can overwrite it.
+    window.renderCart=function(){
+      let raw=[];try{raw=JSON.parse(localStorage.getItem('rebel_cart')||'[]');if(!Array.isArray(raw))raw=[]}catch{raw=[]}
+      const items=raw.map((i,n)=>{const p=products.find(x=>String(x.id)===String(i.id));if(!p)return '';const qty=Math.max(1,Number(i.qty)||1);const price=Number(p.price)||0;return '<div class="admin-row"><div><strong>'+esc(p.name)+'</strong><div class="muted">'+qty+' × '+money(price)+'</div></div><div class="admin-actions"><button type="button" data-zq-cart-minus="'+n+'">−</button><button type="button" data-zq-cart-plus="'+n+'">+</button></div></div>'}).join('');
+      const modal=document.getElementById('cartModal');if(!modal)return;
+      const box=document.getElementById('cartItems');if(box)box.innerHTML=items||'<p class="muted">Dein Warenkorb ist leer.</p>';
+      const total=raw.reduce((sum,i)=>{const p=products.find(x=>String(x.id)===String(i.id));return sum+(p?(Number(p.price)||0)*(Number(i.qty)||0):0)},0);
+      const totalEl=document.getElementById('cartTotal');if(totalEl)totalEl.textContent=money(total);
+      const count=raw.reduce((sum,i)=>sum+(Number(i.qty)||0),0);const countEl=document.getElementById('cartCount');if(countEl)countEl.textContent=String(count);
+      box?.querySelectorAll('[data-zq-cart-minus]').forEach(b=>b.onclick=()=>{const n=Number(b.dataset.zqCartMinus);const i=raw[n];if(!i)return;if((Number(i.qty)||0)<=1)raw.splice(n,1);else i.qty--;localStorage.setItem('rebel_cart',JSON.stringify(raw));window.renderCart()});
+      box?.querySelectorAll('[data-zq-cart-plus]').forEach(b=>b.onclick=()=>{const n=Number(b.dataset.zqCartPlus);const i=raw[n];const p=i&&products.find(x=>String(x.id)===String(i.id));if(!i||!p)return;if((Number(i.qty)||0)>=Number(p.stock))return typeof window.toast==='function'&&window.toast('Nicht mehr auf Lager');i.qty++;localStorage.setItem('rebel_cart',JSON.stringify(raw));window.renderCart()});
+    };
+    const cartButton=document.getElementById('cartBtn');
+    if(cartButton&&!cartButton.dataset.zqMerchantCart){
+      cartButton.dataset.zqMerchantCart='1';
+      cartButton.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const modal=document.getElementById('cartModal');modal?.classList.remove('hidden');window.renderCart();},true);
+    }
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(init,100));else setTimeout(init,100);
 })();
