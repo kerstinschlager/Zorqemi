@@ -64,8 +64,11 @@
     const host = location.hostname.toLowerCase().replace(/^www\./, '');
     if (SHOP_ROOTS.has(host) || host.endsWith('.github.io')) return;
 
-    // A merchant subdomain is always a public shop entry point.
-    // Prevent the SPA from keeping the previously selected dashboard view.
+    // Merchant subdomains are handled exclusively by merchant-shop.js.
+    // Do not let this legacy loader re-render the product grid or overwrite
+    // the merchant cart handlers after the merchant shop has initialized.
+    if (host.endsWith('.zorqemi.de') && host !== 'zorqemi.de') return;
+
     const shopButton = document.querySelector('.nav-btn[data-view="shop"]');
     if (shopButton) shopButton.click();
 
