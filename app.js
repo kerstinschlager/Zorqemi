@@ -32,7 +32,39 @@ if(authContext==='customer'){
     return toast('Kundenkonto konnte nicht erstellt werden.');
   }catch(e){console.warn('customer auth failed',e);return toast('Kundenanmeldung momentan nicht möglich.')}
 }
-if(authMode==='login'){const {data,error}=await db.auth.signInWithPassword({email,password});if(error){const msg=error.message||'';if(/invalid login credentials/i.test(msg))return toast('E-Mail oder Passwort ist ungültig.');if(/email not confirmed/i.test(msg))return toast('Bitte bestätige zuerst deine E-Mail-Adresse.');if(/password/i.test(msg)&&/minimum|least/i.test(msg))return toast('Das Passwort erfüllt die Anforderungen nicht.');return toast(msg||'Anmeldung momentan nicht möglich.')}currentUser=data.user;serverSession=false;customerSession=false;await loadMerchant();toast('Erfolgreich angemeldet');$('#authModal').classList.add('hidden');return refreshAuth()}else{const slug=slugify(name)||slugify(email.split('@')[0])||'shop';try{const s=await serverFetch('/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,slug,email,password})});if(s.response.ok&&s.payload?.user){serverSession=true;currentUser={id:s.payload.user.id,email:s.payload.user.email,user_metadata:{display_name:name}};await loadMerchant();toast('Konto und Händler-Shop erstellt');$('#authModal').classList.add('hidden');return refreshAuth()}if(s.response.status===400)return toast('Passwort muss mindestens 10 Zeichen haben.');if(s.response.status===409)return toast('E-Mail oder Shop-Adresse ist bereits registriert.')}catch(e){console.warn('server registration failed',e)}const {data,error}=await db.auth.signUp({email,password,options:{data:{display_name:name}}});if(error)return toast(error.message);toast(data.session?'Konto erstellt':'Bitte E-Mail bestätigen')}$('#authModal').classList.add('hidden');await refreshAuth()}
+if(authMode==='login'){
+  try{
+    const s=await serverFetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    if(s.response.ok&&s.payload?.user){
+      serverSession=true;
+      currentUser={id:s.payload.user.id,merchant_id:s.payload.user.merchant_id,email:s.payload.user.email,role:s.payload.user.role,user_metadata:{display_name:s.payload.user.merchant_name||name}};
+      await loadMerchant();
+      toast('Erfolgreich angemeldet');
+      $('#authModal').classList.add('hidden');
+      return refreshAuth();
+    }
+    if(s.response.status===401)return toast('E-Mail oder Passwort ist ungültig.');
+    if(s.response.status===400)return toast('Bitte E-Mail und Passwort eingeben.');
+  }catch(e){console.warn('merchant server login failed',e)}
+  return toast('Anmeldung momentan nicht möglich.');
+}else{
+  const slug=slugify(name)||slugify(email.split('@')[0])||'shop';
+  try{
+    const s=await serverFetch('/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,slug,email,password})});
+    if(s.response.ok&&s.payload?.user){
+      serverSession=true;
+      currentUser={id:s.payload.user.id,email:s.payload.user.email,merchant_id:s.payload.user.merchant_id,role:s.payload.user.role,user_metadata:{display_name:name}};
+      await loadMerchant();
+      toast('Konto und Händler-Shop erstellt');
+      $('#authModal').classList.add('hidden');
+      return refreshAuth();
+    }
+    if(s.response.status===400)return toast('Passwort muss mindestens 10 Zeichen haben.');
+    if(s.response.status===409)return toast('E-Mail oder Shop-Adresse ist bereits registriert.');
+    if(s.response.status===403)return toast('Händlerregistrierung ist derzeit deaktiviert.');
+  }catch(e){console.warn('server registration failed',e)}
+  return toast('Konto konnte nicht erstellt werden.');
+}
 async function createMerchant(){if(!currentUser)return false;if(merchant)return true;if(serverSession){return Boolean(await loadMerchant())}const shopName=prompt('Wie soll dein Händler-Shop heißen?','Mein Zorqemi Shop');if(!shopName)return false;let slug=slugify(shopName)||'shop';slug+=`-${currentUser.id.slice(0,8)}`;const {data,error}=await db.from('merchants').insert({owner_id:currentUser.id,shop_name:shopName,slug,status:'pending'}).select().single();if(error)return toast(error.message),false;merchant=data;toast('Händler-Shop angelegt');return true}
 function setDashTab(tab){document.querySelectorAll('.dash-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));document.querySelectorAll('.dash-panel').forEach(p=>p.classList.add('hidden'));const map={overview:'#dashboardOverview',products:'#dashboardProducts',orders:'#dashboardOrders',settings:'#dashboardSettings',legal:'#dashboardLegal',checklist:'#dashboardChecklist',faq:'#dashboardFaq',marketing:'#dashboardMarketing'};$(map[tab]||map.overview)?.classList.remove('hidden');if(tab==='products')renderProductsFull();if(tab==='orders')renderOrdersFull();if(tab==='settings')loadSettingsForm()}
 function productRows(mine){return mine.map(p=>{const variants=Array.isArray(p.variants)?p.variants:[];const activeVariants=variants.filter(v=>v?.active!==false);const skus=activeVariants.map(v=>v?.sku).filter(Boolean);const variantInfo=variants.length?` · ${activeVariants.length}/${variants.length} Varianten${skus.length?' · SKU: '+esc(skus.slice(0,3).join(', '))+(skus.length>3?' …':''):''}`:'';return `<div class="admin-row"><div><strong>${esc(p.name)}</strong><div class="muted">${esc(p.category)} · ${money(p.price)} · Bestand ${p.stock}${variantInfo}</div></div><div class="admin-actions"><button onclick="editProduct('${p.id}')">Bearbeiten</button><button onclick="deleteProduct('${p.id}')">Löschen</button></div></div>`}).join('')||'<p class="muted">Noch keine Produkte. Lege dein erstes Produkt an.</p>'}
