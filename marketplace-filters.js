@@ -6,6 +6,8 @@
   const money=n=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Number(n)||0);
   let rows=[];
   function mount(){
+    const host=location.hostname.toLowerCase().replace(/^www\\./,'');
+    if(host.endsWith('.zorqemi.de')&&host!=='zorqemi.de') return;
     const toolbar=document.querySelector('#shopView .toolbar');
     if(!toolbar || document.querySelector('#marketplaceFilters')) return;
     const box=document.createElement('div');
