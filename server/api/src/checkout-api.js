@@ -182,7 +182,12 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
             v.id AS variant_id, v.name AS variant_name, v.price AS variant_price, GREATEST(0,v.stock-v.reserved_stock) AS variant_stock, v.active AS variant_active
        FROM products p JOIN merchants m ON m.id = p.merchant_id
        LEFT JOIN product_variants v ON v.product_id=p.id
-      WHERE p.id = ANY($1::uuid[]) AND p.active = true AND m.published = true`,
+      WHERE p.active = true AND m.published = true
+        AND EXISTS (
+          SELECT 1
+            FROM unnest($1::uuid[]) AS requested(id)
+           WHERE uuid_send(p.id) = uuid_send(requested.id)
+        )`,
     [ids]
   );
   const productRows = new Map();
@@ -347,11 +352,11 @@ export async function createCheckoutSession(pool, body, authenticatedCustomer = 
       const stockResult = variantId
         ? await checkoutClient.query(
             `UPDATE product_variants SET reserved_stock=reserved_stock+$1,updated_at=now()
-               WHERE id=$2 AND active=true AND stock-reserved_stock >= $1 RETURNING id`,
+               WHERE uuid_send(id)=uuid_send($2::uuid) AND active=true AND stock-reserved_stock >= $1 RETURNING id`,
             [entry.quantity,variantId])
         : await checkoutClient.query(
             `UPDATE products SET reserved_stock=reserved_stock+$1,updated_at=now()
-               WHERE id=$2 AND active=true AND stock-reserved_stock >= $1 RETURNING id`,
+               WHERE uuid_send(id)=uuid_send($2::uuid) AND active=true AND stock-reserved_stock >= $1 RETURNING id`,
             [entry.quantity,productId]);
       if (!stockResult.rowCount) fail('stock_unavailable',409);
       await checkoutClient.query(
