@@ -13,6 +13,7 @@
     const host=location.hostname.toLowerCase().replace(/^www\./,'');
     let merchant=null, merchantProducts=null;
     if(host.endsWith('.zorqemi.de') && host!=='zorqemi.de'){
+      const hostSlug=host.slice(0,-'.zorqemi.de'.length).toLowerCase();
       try{
         const [sr,pr]=await Promise.all([
           fetch('/api/v1/shop',{headers:{Accept:'application/json'}}),
@@ -24,6 +25,26 @@
           merchantProducts=pr.ok&&pp?.ok&&Array.isArray(pp.products)
             ? pp.products.filter(x=>String(x.merchant_id)===String(merchant.id))
             : null;
+        }
+        // Fallback: resolve the merchant by subdomain slug when the API host
+        // is normalized by an outer reverse proxy and /api/v1/shop cannot
+        // see the original Host header.
+        if(!merchant && hostSlug){
+          const mr=await fetch('/api/v1/marketplace/merchants',{headers:{Accept:'application/json'}});
+          const mp=await mr.json().catch(()=>({}));
+          if(mr.ok&&mp?.ok&&Array.isArray(mp.merchants)){
+            const m=mp.merchants.find(x=>String(x.shop_slug||x.slug||'').toLowerCase()===hostSlug);
+            if(m){
+              merchant={...m,shop_name:m.shop_name||m.name,slug:m.slug||m.shop_slug};
+              if(pr.ok&&pp?.ok&&Array.isArray(pp.products)){
+                merchantProducts=pp.products.filter(x=>String(x.merchant_id)===String(merchant.id));
+              }else{
+                const p2=await fetch('/api/v1/marketplace/products',{headers:{Accept:'application/json'}});
+                const p2j=await p2.json().catch(()=>({}));
+                if(p2.ok&&p2j?.ok&&Array.isArray(p2j.products))merchantProducts=p2j.products.filter(x=>String(x.merchant_id)===String(merchant.id));
+              }
+            }
+          }
         }
       }catch(e){console.warn('merchant subdomain API unavailable',e)}
     } else {
@@ -139,5 +160,5 @@
     `;document.head.appendChild(style);
     render();
   }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(init,1300));else setTimeout(init,1300);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(init,100));else setTimeout(init,100);
 })();
