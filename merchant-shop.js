@@ -108,6 +108,21 @@
       products=rows||[];
     }
     window.zqPublicShopProducts=products;window.products=products;
+    // Merchant shop owns the cart add operation on direct shop domains.
+    window.addToCart=async function(id){
+      const p=products.find(x=>String(x.id)===String(id));
+      if(!p||Number(p.stock)<=0){if(typeof window.toast==='function')window.toast('Produkt ist nicht verfügbar.');return;}
+      let raw=[];
+      try{raw=JSON.parse(localStorage.getItem('rebel_cart')||'[]');if(!Array.isArray(raw))raw=[];}catch{raw=[]}
+      let item=raw.find(x=>String(x.id)===String(id)&&!x.variantId);
+      const next=(Number(item?.qty)||0)+1;
+      if(next>Number(p.stock))return typeof window.toast==='function'&&window.toast('Nicht mehr auf Lager');
+      if(item)item.qty=next;else raw.push({id:p.id,qty:1});
+      localStorage.setItem('rebel_cart',JSON.stringify(raw));
+      const count=raw.reduce((s,x)=>s+(Number(x.qty)||0),0);
+      const countEl=document.getElementById('cartCount');if(countEl)countEl.textContent=String(count);
+      if(typeof window.toast==='function')window.toast('Produkt hinzugefügt');
+    };
     const ids=[...new Set(products.map(p=>p.category_id).filter(Boolean))];let cats={};
     if(ids.length){const r=await db.from('categories').select('id,name').in('id',ids);if(!r.error)(r.data||[]).forEach(c=>cats[c.id]=c.name)}
     const render=()=>{
