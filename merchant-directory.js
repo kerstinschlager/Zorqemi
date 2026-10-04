@@ -4,7 +4,7 @@
   const db=window.supabase.createClient(URL,KEY);
   const esc=v=>String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
   let merchants=[];
-  function loadMerchantShop(){if(document.querySelector('script[data-merchant-shop]'))return;const s=document.createElement('script');s.src='merchant-shop.js?v=20261004-2';s.dataset.merchantShop='1';document.body.appendChild(s);const r=document.createElement('script');r.src='merchant-recommendations.js?v=20260912-1';r.dataset.merchantRecommendations='1';document.body.appendChild(r)}
+  function loadMerchantShop(){if(document.querySelector('script[data-merchant-shop]'))return;const s=document.createElement('script');s.src='merchant-shop.js?v=20261004-3';s.dataset.merchantShop='1';document.body.appendChild(s);const r=document.createElement('script');r.src='merchant-recommendations.js?v=20260912-1';r.dataset.merchantRecommendations='1';document.body.appendChild(r)}
   function loadProductDetail(){if(document.querySelector('script[data-product-detail]'))return;const s=document.createElement('script');s.src='product-detail.js?v=20260913-1';s.dataset.productDetail='1';document.body.appendChild(s)}
   function mount(){
     loadProductDetail();
