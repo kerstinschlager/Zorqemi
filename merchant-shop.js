@@ -16,12 +16,14 @@
       try{
         const [sr,pr]=await Promise.all([
           fetch('/api/v1/shop',{headers:{Accept:'application/json'}}),
-          fetch('/api/v1/shop/products',{headers:{Accept:'application/json'}})
+          fetch('/api/v1/marketplace/products',{headers:{Accept:'application/json'}})
         ]);
         const sp=await sr.json().catch(()=>({})), pp=await pr.json().catch(()=>({}));
         if(sr.ok&&sp?.ok&&sp.shop){
           merchant={...sp.shop,shop_name:sp.shop.name||sp.shop.shop_name||sp.shop.shop_slug,slug:sp.shop.slug||sp.shop.shop_slug};
-          merchantProducts=Array.isArray(pp.products)?pp.products:null;
+          merchantProducts=pr.ok&&pp?.ok&&Array.isArray(pp.products)
+            ? pp.products.filter(x=>String(x.merchant_id)===String(merchant.id))
+            : null;
         }
       }catch(e){console.warn('merchant subdomain API unavailable',e)}
     } else {
