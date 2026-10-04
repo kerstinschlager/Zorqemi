@@ -18,8 +18,12 @@
     }
   }
   function addDirect(id,button){
-    const products=Array.isArray(window.zqPublicShopProducts)?window.zqPublicShopProducts:[];
-    const p=products.find(x=>String(x.id)===String(id));
+    let products=Array.isArray(window.zqPublicShopProducts)?window.zqPublicShopProducts:[];
+    let p=products.find(x=>String(x.id)===String(id));
+    if(!p&&button){
+      p={id, name:button.dataset.zqProductName||button.closest('.product')?.querySelector('h3')?.textContent?.trim()||'Produkt', price:Number(button.dataset.zqProductPrice)||0, stock:Number(button.dataset.zqProductStock)||0, image_url:button.closest('.product')?.querySelector('img')?.src||'', category:'Produkte'};
+      products=[p]; window.zqPublicShopProducts=products;
+    }
     const stock=Number(p?.stock)||0;
     if(!p||stock<1){toast('Produkt ist nicht verfügbar.');return;}
     const cart=getCart();
