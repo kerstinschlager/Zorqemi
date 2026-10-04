@@ -137,9 +137,10 @@ window.addToCart=async id=>{
   toast('Produkt hinzugefügt');
 };
 function saveCart(){localStorage.setItem('rebel_cart',JSON.stringify(cart))}
-function updateCartCount(){$('#cartCount').textContent=cart.reduce((s,i)=>s+i.qty,0)}
+function reloadCartFromStorage(){try{const raw=JSON.parse(localStorage.getItem('rebel_cart')||'[]');cart=Array.isArray(raw)?raw:[]}catch{cart=[]}return cart}
+function updateCartCount(){const live=reloadCartFromStorage();$('#cartCount').textContent=live.reduce((s,i)=>s+(Number(i.qty)||0),0)}
 function getCartProduct(i){const p=products.find(x=>String(x.id)===String(i.id))||window.zqPublicShopProducts?.find(x=>String(x.id)===String(i.id));if(!p)return null;const v=Array.isArray(p.variants)&&i.variantId?p.variants.find(x=>String(x.id)===String(i.variantId)):null;return {p,v,price:Number(v?.price??p.price),stock:Number(v?.stock??p.stock)}}
-function renderCart(){$('#cartItems').innerHTML=cart.length?cart.map((i,n)=>{const x=getCartProduct(i);if(!x)return '';const label=i.variantName?esc(x.p.name)+' · '+esc(i.variantName):esc(x.p.name);return `<div class="admin-row"><div><strong>${label}</strong><div class="muted">${i.qty} × ${money(x.price)}</div></div><div class="admin-actions"><button onclick="changeQty(${n},-1)">−</button><button onclick="changeQty(${n},1)">+</button></div></div>`}).join(''):'<p class="muted">Dein Warenkorb ist leer.</p>';$('#cartTotal').textContent=money(cart.reduce((s,i)=>{const x=getCartProduct(i);return s+(x?x.price*i.qty:0)},0))}
+function renderCart(){reloadCartFromStorage();$('#cartItems').innerHTML=cart.length?cart.map((i,n)=>{const x=getCartProduct(i);if(!x)return '';const label=i.variantName?esc(x.p.name)+' · '+esc(i.variantName):esc(x.p.name);return `<div class="admin-row"><div><strong>${label}</strong><div class="muted">${i.qty} × ${money(x.price)}</div></div><div class="admin-actions"><button onclick="changeQty(${n},-1)">−</button><button onclick="changeQty(${n},1)">+</button></div></div>`}).join(''):'<p class="muted">Dein Warenkorb ist leer.</p>';$('#cartTotal').textContent=money(cart.reduce((s,i)=>{const x=getCartProduct(i);return s+(x?x.price*i.qty:0)},0))}
 window.changeQty=async(index,d)=>{
   const i=cart[index],x=i&&getCartProduct(i);if(!i||!x)return;
   const next=i.qty+d;if(next>x.stock)return toast('Nicht mehr auf Lager');
