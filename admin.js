@@ -6,7 +6,26 @@ const adminMoney=n=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EU
 const adminEsc=v=>String(v??'').replace(/[&<>'\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[c]));
 let adminUser=null,adminIsAdmin=false;
 function notifyAdmin(t){if(typeof toast==='function')toast(t)}
-async function checkAdmin(){if(window.serverSession&&window.serverFetch&&window.serverSession.role==='admin'){adminIsAdmin=true;adminUser={email:window.serverSession.email};showAdminContent();return true}const {data}=await adminDb.auth.getSession();adminUser=data.session?.user||null;if(!adminUser){adminIsAdmin=false;showAdminGate();return false}const {data:profile}=await adminDb.from('profiles').select('role').eq('id',adminUser.id).maybeSingle();adminIsAdmin=profile?.role==='admin';if(adminIsAdmin)showAdminContent();else showAdminGate();return adminIsAdmin}
+async function checkAdmin(){
+  if(window.serverSession&&window.serverFetch){
+    try{
+      const probe=await window.serverFetch('/admin/commission');
+      if(probe.response.ok){
+        adminIsAdmin=true;
+        adminUser={email:window.serverSession.email,id:window.serverSession.id};
+        showAdminContent();
+        return true;
+      }
+    }catch(e){console.warn('self-hosted admin check failed',e)}
+  }
+  const {data}=await adminDb.auth.getSession();
+  adminUser=data.session?.user||null;
+  if(!adminUser){adminIsAdmin=false;showAdminGate();return false}
+  const {data:profile}=await adminDb.from('profiles').select('role').eq('id',adminUser.id).maybeSingle();
+  adminIsAdmin=profile?.role==='admin';
+  if(adminIsAdmin)showAdminContent();else showAdminGate();
+  return adminIsAdmin;
+}
 function showAdminGate(){admin$('#adminNavBtn')?.classList.add('hidden');admin$('#adminContent')?.classList.add('hidden');admin$('#adminGate')?.classList.remove('hidden')}
 function showAdminContent(){admin$('#adminNavBtn')?.classList.remove('hidden');admin$('#adminGate')?.classList.add('hidden');admin$('#adminContent')?.classList.remove('hidden')}
 function periodStart(){const v=admin$('#adminPeriod').value;if(v==='all')return null;const d=new Date();d.setDate(d.getDate()-Number(v)+1);d.setHours(0,0,0,0);return d.toISOString()}
