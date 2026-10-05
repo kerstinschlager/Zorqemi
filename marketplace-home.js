@@ -1,7 +1,8 @@
 (()=>{
 function init(){
  const host=location.hostname.toLowerCase().replace(/^www\./,'');
- if(host.endsWith('.zorqemi.de') && host!=='zorqemi.de') return;
+ const queryShop=new URLSearchParams(location.search).get('shop');
+ if((host.endsWith('.zorqemi.de') && host!=='zorqemi.de') || queryShop) return;
  const shop=document.querySelector('#shopView'),hero=shop?.querySelector('.hero'),toolbar=shop?.querySelector('.toolbar');
  if(!shop||!hero||!toolbar||document.querySelector('#rkMarketplaceHome'))return;
  document.querySelector('.brand strong')?.replaceWith(Object.assign(document.createElement('strong'),{textContent:'Zorqemi'}));
