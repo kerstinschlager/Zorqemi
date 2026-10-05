@@ -6,7 +6,7 @@ const adminMoney=n=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EU
 const adminEsc=v=>String(v??'').replace(/[&<>'\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[c]));
 let adminUser=null,adminIsAdmin=false;
 function notifyAdmin(t){if(typeof toast==='function')toast(t)}
-async function checkAdmin(){
+async function checkAdmin(authUser=null){
   if(window.serverSession&&window.serverFetch){
     try{
       const probe=await window.serverFetch('/admin/commission');
@@ -18,8 +18,12 @@ async function checkAdmin(){
       }
     }catch(e){console.warn('self-hosted admin check failed',e)}
   }
-  const {data}=await adminDb.auth.getSession();
-  adminUser=data.session?.user||null;
+  if(authUser){
+    adminUser=authUser;
+  }else{
+    const {data}=await adminDb.auth.getSession();
+    adminUser=data.session?.user||null;
+  }
   if(!adminUser){adminIsAdmin=false;showAdminGate();return false}
   const {data:profile}=await adminDb.from('profiles').select('role').eq('id',adminUser.id).maybeSingle();
   adminIsAdmin=profile?.role==='admin';
