@@ -4,7 +4,7 @@ import pg from 'pg';
 import { migrate } from './migrate.js';
 import { resolveShopByHost, getPublicShop } from './shop-router.js';
 import { getMerchantForOwner, listMerchantProducts, createMerchantProduct, updateMerchantProduct, getMerchantOrders, updateMerchantOrder, getShopSettings, updateShopSettings, updateMerchantShipping, getMerchantProfile, updateMerchantProfile, getMerchantLegal, updateMerchantLegal } from './merchant-api.js';
-import { getMerchantFromRequest, loginMerchant, registerMerchant, logoutMerchant, setMerchantSessionCookie, validatePassword, getCustomerFromRequest, loginCustomer, registerCustomer, logoutCustomer, setCustomerSessionCookie } from './auth.js';
+import { getMerchantFromRequest, getSupabaseAdminFromRequest, loginMerchant, registerMerchant, logoutMerchant, setMerchantSessionCookie, validatePassword, getCustomerFromRequest, loginCustomer, registerCustomer, logoutCustomer, setCustomerSessionCookie } from './auth.js';
 import { createCheckoutSession, handleStripeWebhook, releaseExpiredCheckoutReservations } from './checkout-api.js';
 import { getCart, addCartItem, updateCartItem, removeCartItem } from './cart-api.js';
 import { getMerchantPayouts, createMerchantPayout, markPayoutPaid, listAdminPayouts, getPlatformCommission, setPlatformCommission, listAdminMerchants, cancelMerchantPayout } from './payout-api.js';
@@ -81,11 +81,18 @@ function requestedMerchant(req){return req.params.merchantId;}
 
 async function requirePlatformAdmin(req,res,next) {
   try {
-    const user=await getMerchantFromRequest(pool,req);
+    let user=await getMerchantFromRequest(pool,req);
+    if(user){
+      const configuredAdmins=String(process.env.ZQ_PLATFORM_ADMIN_EMAILS||'').split(',').map(v=>v.trim().toLowerCase()).filter(Boolean);
+      if(user.role!=='admin' && !configuredAdmins.includes(String(user.email||'').toLowerCase()))return res.status(403).json({ok:false,error:'admin_required'});
+      req.merchantUser=user;
+      req.platformAdmin=user;
+      return next();
+    }
+    user=await getSupabaseAdminFromRequest(req);
     if(!user)return res.status(401).json({ok:false,error:'authentication_required'});
-    const configuredAdmins=String(process.env.ZQ_PLATFORM_ADMIN_EMAILS||'').split(',').map(v=>v.trim().toLowerCase()).filter(Boolean);
-    if(user.role!=='admin' && !configuredAdmins.includes(String(user.email||'').toLowerCase()))return res.status(403).json({ok:false,error:'admin_required'});
     req.merchantUser=user;
+    req.platformAdmin=user;
     next();
   } catch(e){next(e);}
 }
@@ -108,7 +115,7 @@ app.get('/api/v1/admin/merchants',requirePlatformAdmin,async(req,res,next)=>{try
 app.get('/api/v1/admin/payouts',requirePlatformAdmin,async(req,res,next)=>{try{res.json({ok:true,payouts:await listAdminPayouts(pool,req.query.limit)});}catch(e){next(e);}});
 app.post('/api/v1/admin/payouts/:merchantId',requirePlatformAdmin,async(req,res,next)=>{try{const payout=await createMerchantPayout(pool,req.params.merchantId);if(!payout)return res.status(409).json({ok:false,error:'no_payoutable_orders'});res.status(201).json({ok:true,payout});}catch(e){next(e);}});
 app.patch('/api/v1/admin/payouts/:payoutId/cancel',requirePlatformAdmin,async(req,res,next)=>{try{const payout=await cancelMerchantPayout(pool,req.params.payoutId);if(!payout)return res.status(404).json({ok:false,error:'payout_not_found'});res.json({ok:true,payout});}catch(e){next(e);}});
-app.patch('/api/v1/admin/payouts/:payoutId/paid',requirePlatformAdmin,async(req,res,next)=>{try{const payout=await markPayoutPaid(pool,req.params.payoutId,req.merchantUser.user_id);if(!payout)return res.status(404).json({ok:false,error:'payout_not_found_or_already_paid'});res.json({ok:true,payout});}catch(e){next(e);}});
+app.patch('/api/v1/admin/payouts/:payoutId/paid',requirePlatformAdmin,async(req,res,next)=>{try{const payout=await markPayoutPaid(pool,req.params.payoutId,req.merchantUser?.user_id || null);if(!payout)return res.status(404).json({ok:false,error:'payout_not_found_or_already_paid'});res.json({ok:true,payout});}catch(e){next(e);}});
 app.get('/api/v1/admin/commission',requirePlatformAdmin,async(_req,res,next)=>{try{res.json({ok:true,rate:await getPlatformCommission(pool)});}catch(e){next(e);}});
 app.patch('/api/v1/admin/commission',requirePlatformAdmin,async(req,res,next)=>{try{res.json({ok:true,rate:await setPlatformCommission(pool,req.body?.rate)});}catch(e){next(e);}});
 app.patch('/api/v1/merchant/:merchantId/settings',requireOwnMerchant,async(req,res,next)=>{try{const settings=await updateShopSettings(pool,requestedMerchant(req),req.merchantUser.user_id,req.body||{});if(!settings)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,settings});}catch(e){next(e);}});
