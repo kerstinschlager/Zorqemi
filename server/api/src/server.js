@@ -7,7 +7,7 @@ import { getMerchantForOwner, listMerchantProducts, createMerchantProduct, updat
 import { getMerchantFromRequest, getSupabaseAdminFromRequest, loginMerchant, registerMerchant, logoutMerchant, setMerchantSessionCookie, validatePassword, getCustomerFromRequest, loginCustomer, registerCustomer, logoutCustomer, setCustomerSessionCookie } from './auth.js';
 import { createCheckoutSession, handleStripeWebhook, releaseExpiredCheckoutReservations } from './checkout-api.js';
 import { getCart, addCartItem, updateCartItem, removeCartItem } from './cart-api.js';
-import { getMerchantPayouts, createMerchantPayout, markPayoutPaid, listAdminPayouts, getPlatformCommission, setPlatformCommission, listAdminMerchants, cancelMerchantPayout } from './payout-api.js';
+import { getMerchantPayouts, createMerchantPayout, markPayoutPaid, listAdminPayouts, listAdminOrders, getAdminDashboardSummary, getPlatformCommission, setPlatformCommission, listAdminMerchants, cancelMerchantPayout } from './payout-api.js';
 
 const { Pool } = pg;
 const app = express();
@@ -111,7 +111,7 @@ app.patch('/api/v1/merchant/:merchantId/legal',requireOwnMerchant,async(req,res,
 app.get('/api/v1/merchant/:merchantId/settings',requireOwnMerchant,async(req,res,next)=>{try{const settings=await getShopSettings(pool,requestedMerchant(req),req.merchantUser.user_id);if(!settings)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,settings});}catch(e){next(e);}});
 app.get('/api/v1/merchant/:merchantId/payouts',requireOwnMerchant,async(req,res,next)=>{try{const data=await getMerchantPayouts(pool,requestedMerchant(req),req.merchantUser.user_id,req.query.limit);if(!data)return res.status(404).json({ok:false,error:'merchant_not_found'});res.json({ok:true,...data});}catch(e){next(e);}});
 
-app.get('/api/v1/admin/merchants',requirePlatformAdmin,async(req,res,next)=>{try{res.json({ok:true,merchants:await listAdminMerchants(pool,req.query.limit)});}catch(e){next(e);}});
+app.get('/api/v1/admin/merchants',requirePlatformAdmin,async(req,res,next)=>{try{res.json({ok:true,merchants:await listAdminMerchants(pool,req.query.limit)});}catch(e){next(e);}});app.get('/api/v1/admin/orders',requirePlatformAdmin,async(req,res,next)=>{try{res.json({ok:true,orders:await listAdminOrders(pool,req.query.limit)});}catch(e){next(e);}});app.get('/api/v1/admin/summary',requirePlatformAdmin,async(_req,res,next)=>{try{res.json({ok:true,summary:await getAdminDashboardSummary(pool)});}catch(e){next(e);}});
 app.get('/api/v1/admin/payouts',requirePlatformAdmin,async(req,res,next)=>{try{res.json({ok:true,payouts:await listAdminPayouts(pool,req.query.limit)});}catch(e){next(e);}});
 app.post('/api/v1/admin/payouts/:merchantId',requirePlatformAdmin,async(req,res,next)=>{try{const payout=await createMerchantPayout(pool,req.params.merchantId);if(!payout)return res.status(409).json({ok:false,error:'no_payoutable_orders'});res.status(201).json({ok:true,payout});}catch(e){next(e);}});
 app.patch('/api/v1/admin/payouts/:payoutId/cancel',requirePlatformAdmin,async(req,res,next)=>{try{const payout=await cancelMerchantPayout(pool,req.params.payoutId);if(!payout)return res.status(404).json({ok:false,error:'payout_not_found'});res.json({ok:true,payout});}catch(e){next(e);}});
