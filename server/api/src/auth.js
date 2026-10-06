@@ -25,6 +25,35 @@ export async function registerMerchant(pool,{name,slug,shopSlug,email,password})
 export async function logoutMerchant(pool,req,res) { const token=requestToken(req); if(/^[a-f0-9]{64}$/i.test(token||''))await pool.query('DELETE FROM merchant_sessions WHERE token_hash=$1',[hashToken(token)]); clearMerchantSessionCookie(res); }
 export async function requireMerchant(req,res,next) { try{const user=await getMerchantFromRequest(req.app.locals.pool,req);if(!user)return res.status(401).json({ok:false,error:'authentication_required'});req.merchantUser=user;next();}catch(e){next(e);} }
 export function hashMerchantPassword(password){return hashPassword(password);} export function verifyMerchantPassword(password,encoded){return verifyPassword(password,encoded);}
+const SUPABASE_URL = process.env.ZQ_SUPABASE_URL || 'https://oansbivjkczjbtxaknks.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = process.env.ZQ_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_9tDZPZ9KmCjHZqVXBmO-1g_8Aqpu8qE';
+
+export async function getSupabaseAdminFromRequest(req) {
+  const header = req.get('authorization') || '';
+  if (!header.startsWith('Bearer ')) return null;
+  const token = header.slice(7).trim();
+  if (token.length < 20) return null;
+  try {
+    const userResponse = await fetch(SUPABASE_URL + '/auth/v1/user', {
+      headers: { apikey: SUPABASE_PUBLISHABLE_KEY, authorization: 'Bearer ' + token, accept: 'application/json' },
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!userResponse.ok) return null;
+    const user = await userResponse.json();
+    if (!user?.id || !user?.email) return null;
+    const profileResponse = await fetch(SUPABASE_URL + '/rest/v1/profiles?select=role&id=eq.' + encodeURIComponent(user.id) + '&limit=1', {
+      headers: { apikey: SUPABASE_PUBLISHABLE_KEY, authorization: 'Bearer ' + token, accept: 'application/json' },
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!profileResponse.ok) return null;
+    const profiles = await profileResponse.json();
+    const role = profiles?.[0]?.role;
+    const configuredAdmins = String(process.env.ZQ_PLATFORM_ADMIN_EMAILS || '').split(',').map(v => v.trim().toLowerCase()).filter(Boolean);
+    if (role !== 'admin' && !configuredAdmins.includes(String(user.email).toLowerCase())) return null;
+    return { user_id: user.id, email: user.email, role: 'admin', active: true, supabase: true };
+  } catch { return null; }
+}
+
 
 const CUSTOMER_COOKIE_NAME = 'zq_customer_session';
 
