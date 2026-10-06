@@ -25,8 +25,10 @@
     }));
   }
   window.createAdminPayout=async function(merchantId){
+    const statusEl=(()=>{let e=document.getElementById('zqPayoutActionStatus');if(!e){e=document.createElement('div');e.id='zqPayoutActionStatus';e.style.cssText='margin:12px 0;padding:10px 14px;border:1px solid #d6d0df;border-radius:10px;background:#fff;font-weight:700;';document.getElementById('payoutTable')?.before(e)}return e})();
+    if(statusEl)statusEl.textContent='Auszahlung wird erstellt …';
     if((window.serverSession&&window.serverFetch&&window.serverSession.role==='admin')||(typeof adminUser!=='undefined'&&adminUser?.supabase&&window.serverAdminFetch)){
-      try{const fetchAdmin=(typeof adminUser!=='undefined'&&adminUser?.supabase&&window.serverAdminFetch)?window.serverAdminFetch:window.serverFetch; const {response,payload}=await fetchAdmin('/admin/payouts/'+encodeURIComponent(merchantId),{method:'POST'});if(!response.ok)throw new Error(payload?.error||'payout_create_failed');notifyAdmin('Auszahlung erstellt: '+adminMoney(payload.payout.net_amount));await renderPayoutControls();}catch(e){notifyAdmin(e.message||'Auszahlung konnte nicht erstellt werden')}return;
+      try{const fetchAdmin=(typeof adminUser!=='undefined'&&adminUser?.supabase&&window.serverAdminFetch)?window.serverAdminFetch:window.serverFetch; const {response,payload}=await fetchAdmin('/admin/payouts/'+encodeURIComponent(merchantId),{method:'POST'});if(!response.ok)throw new Error(payload?.error||'payout_create_failed');notifyAdmin('Auszahlung erstellt: '+adminMoney(payload.payout.net_amount));if(statusEl)statusEl.textContent='✓ Auszahlung erstellt: '+adminMoney(payload.payout.net_amount);await renderPayoutControls();await window.loadAdminStats?.();}catch(e){notifyAdmin(e.message||'Auszahlung konnte nicht erstellt werden');if(statusEl)statusEl.textContent='✕ '+(e.message||'Auszahlung konnte nicht erstellt werden')}return;
     }
     const {data,error}=await adminDb.rpc('admin_create_payout',{p_merchant_id:merchantId});
     if(error){notifyAdmin(error.message);return}
