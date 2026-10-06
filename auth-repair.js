@@ -13,6 +13,7 @@
     });
     return client;
   }
+  function notify(message){ try{ if(typeof window.toast==='function') window.toast(message); else if(typeof toast==='function') toast(message); }catch(e){} }
   function openMerchantLogin(){
     const modal=document.getElementById('authModal');
     if(!modal)return;
@@ -29,7 +30,7 @@
     const email=(document.getElementById('authEmail')?.value||'').trim();
     const password=document.getElementById('authPassword')?.value||'';
     if(!email||password.length<10){
-      window.toast?.('Bitte E-Mail und Passwort eingeben (mindestens 10 Zeichen).');
+      notify('Bitte E-Mail und Passwort eingeben (mindestens 10 Zeichen).');
       return false;
     }
     const submit=document.getElementById('authSubmit');
@@ -52,16 +53,16 @@
       if(isAdmin){
         window.zqCheckAdmin?await window.zqCheckAdmin(data.user):null;
         window.zqOpenAdmin?.();
-        window.toast?.('Angemeldet – Adminbereich geöffnet.');
+        notify('Angemeldet – Adminbereich geöffnet.');
       }else{
-        window.toast?.('Erfolgreich angemeldet');
+        notify('Erfolgreich angemeldet');
       }
     }catch(err){
       console.error('Zorqemi login failed',err);
       const msg=String(err?.message||err?.error_description||'Anmeldung fehlgeschlagen');
       const switchText=document.getElementById('authSwitchText');
       if(switchText)switchText.innerHTML='<span style="color:#b91c1c;font-weight:700">Anmeldung fehlgeschlagen: '+msg.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</span>';
-      window.toast?.('Anmeldung fehlgeschlagen: '+msg);
+      notify('Anmeldung fehlgeschlagen: '+msg);
     }finally{
       if(submit){submit.disabled=false;submit.textContent='Anmelden';}
     }
