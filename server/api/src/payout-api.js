@@ -73,6 +73,31 @@ export async function setPlatformCommission(pool, rate) {
 }
 
 
+export async function getAdminDashboardSummary(pool) {
+  const [orders, revenue, commission, pendingPayouts, paidPayouts, merchants] = await Promise.all([
+    pool.query("SELECT count(*)::int AS count FROM orders WHERE status IN ('paid','processing','shipped','completed')"),
+    pool.query("SELECT COALESCE(SUM(total),0) AS value FROM orders WHERE status IN ('paid','processing','shipped','completed')"),
+    pool.query("SELECT COALESCE(SUM(total * COALESCE((SELECT default_commission_rate FROM platform_settings WHERE id=true),10) / 100),0) AS value FROM orders WHERE status IN ('paid','processing','shipped','completed')"),
+    pool.query("SELECT COALESCE(SUM(net_amount),0) AS value FROM merchant_payouts WHERE status='pending'"),
+    pool.query("SELECT COALESCE(SUM(net_amount),0) AS value FROM merchant_payouts WHERE status='paid'"),
+    pool.query("SELECT count(*)::int AS count FROM merchants")
+  ]);
+  return {
+    merchants: merchants.rows[0].count,
+    orders: orders.rows[0].count,
+    revenue: Number(revenue.rows[0].value || 0),
+    commission: Number(commission.rows[0].value || 0),
+    pending_payouts: Number(pendingPayouts.rows[0].value || 0),
+    paid_payouts: Number(paidPayouts.rows[0].value || 0)
+  };
+}
+
+export async function listAdminOrders(pool, limit=100) {
+  const safe=Math.min(Math.max(Number(limit)||100,1),200);
+  const r=await pool.query("SELECT o.id,o.merchant_id,m.name AS merchant_name,o.status,o.currency,o.subtotal,o.shipping_total,o.tax_total,o.total,o.payment_provider,o.payment_reference,o.created_at,o.updated_at FROM orders o LEFT JOIN merchants m ON m.id=o.merchant_id ORDER BY o.created_at DESC LIMIT $1",[safe]);
+  return r.rows;
+}
+
 export async function listAdminMerchants(pool, limit=200) {
   const safe=Math.min(Math.max(Number(limit)||200,1),500);
   const r=await pool.query(`SELECT m.id,m.name,m.email,m.payout_method,m.payout_email,m.published,
