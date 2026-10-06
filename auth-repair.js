@@ -1,5 +1,18 @@
 (()=>{
   let bound=false;
+  let client=null;
+  function getClient(){
+    if(client)return client;
+    if(window.zqDb)return client=window.zqDb;
+    if(!window.supabase)throw new Error('Supabase-Bibliothek ist nicht geladen.');
+    const url=window.__RK_SUPABASE_URL||'https://oansbivjkczjbtxaknks.supabase.co';
+    const key=window.__RK_SUPABASE_KEY||'';
+    if(!key)throw new Error('Supabase-Publishable-Key fehlt.');
+    client=window.supabase.createClient(url,key,{
+      auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}
+    });
+    return client;
+  }
   function openMerchantLogin(){
     const modal=document.getElementById('authModal');
     if(!modal)return;
@@ -10,7 +23,7 @@
     setTimeout(()=>document.getElementById('authEmail')?.focus(),50);
   }
   async function handleSubmit(e){
-    if(!e.target || e.target.id!=='authForm')return;
+    if(!e.target||e.target.id!=='authForm')return;
     e.preventDefault();
     e.stopImmediatePropagation();
     const email=(document.getElementById('authEmail')?.value||'').trim();
@@ -22,25 +35,27 @@
     const submit=document.getElementById('authSubmit');
     if(submit){submit.disabled=true;submit.textContent='Anmeldung …';}
     try{
-      const client=window.zqDb;
-      if(!client)throw new Error('Supabase ist nicht geladen.');
-      const {data,error}=await client.auth.signInWithPassword({email,password});
+      const db=getClient();
+      const {data,error}=await db.auth.signInWithPassword({email,password});
       if(error)throw error;
       if(!data?.user)throw new Error('Keine Benutzer-Session erhalten.');
+      const {data:sessionData}=await db.auth.getSession();
+      if(!sessionData?.session)throw new Error('Anmeldung war erfolgreich, aber es wurde keine Session gespeichert.');
+      const {data:profile,error:profileError}=await db.from('profiles').select('role,display_name').eq('id',data.user.id).maybeSingle();
+      if(profileError)console.warn('profile check failed',profileError);
+      const isAdmin=profile?.role==='admin';
+      document.getElementById('authStatus').textContent=data.user.email||email;
+      const btn=document.getElementById('authBtn');if(btn)btn.textContent='Abmelden';
       document.getElementById('authModal')?.classList.add('hidden');
-      if(typeof window.refreshAuth==='function'){
-        await window.refreshAuth();
+      window.currentUser=data.user;
+      window.zqAdminUser=data.user;
+      if(isAdmin){
+        window.zqCheckAdmin?await window.zqCheckAdmin(data.user):null;
+        window.zqOpenAdmin?.();
+        window.toast?.('Angemeldet – Adminbereich geöffnet.');
       }else{
-        const status=document.getElementById('authStatus');
-        const btn=document.getElementById('authBtn');
-        if(status)status.textContent=data.user.email||email;
-        if(btn)btn.textContent='Abmelden';
-        if(window.zqCheckAdmin){
-          const ok=await window.zqCheckAdmin(data.user);
-          if(ok)window.zqOpenAdmin?.();
-        }
+        window.toast?.('Erfolgreich angemeldet');
       }
-      window.toast?.('Erfolgreich angemeldet');
     }catch(err){
       console.error('Zorqemi login failed',err);
       const msg=String(err?.message||err?.error_description||'Anmeldung fehlgeschlagen');
@@ -57,7 +72,6 @@
     if(form&&!form.dataset.zqFinalAuth){
       form.dataset.zqFinalAuth='1';
       form.addEventListener('submit',handleSubmit,true);
-      bound=true;
     }
     const btn=document.getElementById('authBtn');
     if(btn&&!btn.dataset.zqAuthRepairFinal){
@@ -67,6 +81,7 @@
         if(label!=='abmelden'){e.preventDefault();e.stopImmediatePropagation();openMerchantLogin();}
       },true);
     }
+    bound=true;
   }
   window.zqOpenMerchantLogin=openMerchantLogin;
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
