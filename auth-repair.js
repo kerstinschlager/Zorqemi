@@ -38,6 +38,17 @@
     const submit=document.getElementById('authSubmit');
     if(submit){submit.disabled=true;submit.textContent='Anmeldung …';}
     try{
+      if(typeof window.serverFetch==='function'){
+        const serverResult=await window.serverFetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+        if(serverResult.response.ok&&serverResult.payload?.user){
+          document.getElementById('authStatus').textContent=serverResult.payload.user.email||email;
+          const btn=document.getElementById('authBtn');if(btn)btn.textContent='Abmelden';
+          document.getElementById('authModal')?.classList.add('hidden');
+          if(typeof window.refreshAuth==='function') await window.refreshAuth();
+          notify('Erfolgreich angemeldet');
+          return false;
+        }
+      }
       const db=getClient();
       const {data,error}=await db.auth.signInWithPassword({email,password});
       if(error)throw error;
@@ -60,7 +71,7 @@
       }else{
         notify('Erfolgreich angemeldet');
       }
-    }catch(err){
+    }    }catch(err){
       console.error('Zorqemi login failed',err);
       const msg=String(err?.message||err?.error_description||'Anmeldung fehlgeschlagen');
       const switchText=document.getElementById('authSwitchText');
