@@ -433,10 +433,13 @@ export async function handleStripeWebhook(pool, rawBody, signature) {
   const checkoutId = session?.metadata?.zorqemi_checkout_id;
   if (!checkoutId && event.type !== 'charge.refunded') return { received: true };
 
-  const isPaid = event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded';
+  const isCompleted = event.type === 'checkout.session.completed';
+  const isPaid = event.type === 'checkout.session.async_payment_succeeded' || (isCompleted && session?.payment_status === 'paid');
+  const isAwaitingAsyncPayment = isCompleted && session?.payment_status !== 'paid';
   const isCancelled = event.type === 'checkout.session.async_payment_failed' || event.type === 'checkout.session.expired';
   const isRefunded = event.type === 'charge.refunded';
-  if (!isPaid && !isCancelled && !isRefunded) return { received: true };
+  if (!isPaid && !isCancelled && !isRefunded && !isAwaitingAsyncPayment) return { received: true };
+  if (isAwaitingAsyncPayment) return { received: true, pending_payment: true };
 
   if (isRefunded) {
     const paymentIntent = typeof session?.payment_intent === 'string' ? session.payment_intent : null;
