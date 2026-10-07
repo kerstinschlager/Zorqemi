@@ -25,6 +25,8 @@
   }
   async function handleSubmit(e){
     if(!e.target||e.target.id!=='authForm')return;
+    const modeText=String(document.getElementById('authTitle')?.textContent||'').trim().toLowerCase();
+    if(modeText && modeText!=='anmelden') return;
     e.preventDefault();
     e.stopImmediatePropagation();
     const email=(document.getElementById('authEmail')?.value||'').trim();
@@ -50,6 +52,7 @@
       document.getElementById('authModal')?.classList.add('hidden');
       window.currentUser=data.user;
       window.zqAdminUser=data.user;
+      if(typeof window.refreshAuth==='function') await window.refreshAuth();
       if(isAdmin){
         window.zqCheckAdmin?await window.zqCheckAdmin(data.user):null;
         window.zqOpenAdmin?.();
