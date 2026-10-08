@@ -1,4 +1,4 @@
-const CACHE = 'zorqemi-v2';
+const CACHE = 'zorqemi-v3';
 const APP_SHELL = ['./', './index.html', './styles.css', './zq-mobile.css', './zq-visuals.js', './manifest.json', './zq-icon.svg'];
 
 self.addEventListener('install', event => {
@@ -13,6 +13,12 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
+  // Never cache API/auth responses. They are session-sensitive and caching a prior
+  // 401 can make a freshly logged-in user appear logged out.
+  if (url.pathname.startsWith('/api/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
   event.respondWith(fetch(event.request).then(response => {
     const copy = response.clone();
     caches.open(CACHE).then(cache => cache.put(event.request, copy));
