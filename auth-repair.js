@@ -8,14 +8,16 @@
     if(!email||password.length<10){notify('Bitte E-Mail und Passwort eingeben (mindestens 10 Zeichen).');return false;}
     if(submit){submit.disabled=true;submit.textContent='Anmeldung …';}
     try{
-      const response=await fetch('/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},credentials:'include',body:JSON.stringify({email,password})});
+      const isCustomer=window.__zqAuthContext==='customer';
+      const endpoint=isCustomer?'/api/v1/customer/auth/login':'/api/v1/auth/login';
+      const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},credentials:'include',body:JSON.stringify({email,password})});
       const payload=await response.json().catch(()=>({}));
-      if(!response.ok||!payload?.user)throw new Error(payload?.error==='invalid_credentials'?'E-Mail oder Passwort ist falsch.':'Anmeldung momentan nicht möglich.');
+      if(!response.ok||!(isCustomer?payload?.customer:payload?.user))throw new Error(payload?.error==='invalid_credentials'?'E-Mail oder Passwort ist falsch.':'Anmeldung momentan nicht möglich.');
       document.getElementById('authModal')?.classList.add('hidden');
-      document.getElementById('authStatus').textContent=payload.user.email||email;
+      document.getElementById('authStatus').textContent=(isCustomer?payload.customer.email:payload.user.email)||email;
       const btn=document.getElementById('authBtn');if(btn)btn.textContent='Abmelden';
       if(typeof window.refreshAuth==='function')await window.refreshAuth();
-      if(typeof window.zqOpenDashboard==='function')await window.zqOpenDashboard();
+      if(!isCustomer&&typeof window.zqOpenDashboard==='function')await window.zqOpenDashboard();
       notify('Erfolgreich angemeldet');
     }catch(err){notify('Anmeldung fehlgeschlagen: '+String(err?.message||'Unbekannter Fehler'));}finally{if(submit){submit.disabled=false;submit.textContent='Anmelden';}}
     return false;
@@ -41,12 +43,13 @@
     const submit=document.getElementById('authSubmit');
     if(submit){submit.disabled=true;submit.textContent='Anmeldung …';}
     try{
-      const serverResult=await window.serverFetch?.('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
-      if(serverResult?.response?.ok&&serverResult?.payload?.user){
+      const isCustomer=window.__zqAuthContext==='customer';
+      const serverResult=await window.serverFetch?.(isCustomer?'/customer/auth/login':'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+      if(serverResult?.response?.ok&&(isCustomer?serverResult?.payload?.customer:serverResult?.payload?.user)){
         document.getElementById('authModal')?.classList.add('hidden');
         if(typeof window.refreshAuth==='function')await window.refreshAuth();
         notify('Erfolgreich angemeldet');
-        if(typeof window.zqOpenDashboard==='function')await window.zqOpenDashboard();
+        if(!isCustomer&&typeof window.zqOpenDashboard==='function')await window.zqOpenDashboard();
         return false;
       }
       const db=window.zqDb;
