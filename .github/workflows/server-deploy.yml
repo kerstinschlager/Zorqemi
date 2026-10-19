@@ -20,13 +20,15 @@ jobs:
       - name: Install SSH key
         env:
           SSH_PRIVATE_KEY: ${{ secrets.ZQ_SERVER_SSH_KEY }}
+          HOST: ${{ secrets.ZQ_SERVER_HOST }}
         run: |
           set -euo pipefail
-          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_PRIVATE_KEY" || { echo "Missing GitHub Actions secret: ZQ_SERVER_SSH_KEY"; exit 1; }
+          test -n "$HOST" || { echo "Missing GitHub Actions secret: ZQ_SERVER_HOST"; exit 1; }
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ secrets.ZQ_SERVER_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy
         env:
