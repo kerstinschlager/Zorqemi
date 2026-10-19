@@ -1,0 +1,51 @@
+name: Backup Zorqemi database
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/backup-zorqemi.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.ZQ_SERVER_SSH_KEY }}
+          HOST: ${{ secrets.ZQ_SERVER_HOST }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$HOST"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Create and verify PostgreSQL backup on server
+        env:
+          HOST: ${{ secrets.ZQ_SERVER_HOST }}
+          USER: ${{ secrets.ZQ_SERVER_USER }}
+          PATH_ON_SERVER: ${{ secrets.ZQ_SERVER_PATH }}
+        run: |
+          set -euo pipefail
+          BACKUP_NAME="zorqemi-db-$(date -u +%Y%m%d-%H%M%S).dump"
+          ssh "$USER@$HOST" "PATH_ON_SERVER='$PATH_ON_SERVER' BACKUP_NAME='$BACKUP_NAME' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$PATH_ON_SERVER"
+          mkdir -p "$HOME/zorqemi-backups"
+          chmod 700 "$HOME/zorqemi-backups"
+          BACKUP_FILE="$HOME/zorqemi-backups/$BACKUP_NAME"
+          docker compose exec -T zorqemi-db sh -lc 'pg_dump --format=custom --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > "$BACKUP_FILE"
+          test -s "$BACKUP_FILE"
+          docker compose exec -T zorqemi-db pg_restore --list < "$BACKUP_FILE" >/dev/null
+          chmod 600 "$BACKUP_FILE"
+          printf 'Verified database backup: %s\n' "$BACKUP_FILE"
+          ls -lh "$BACKUP_FILE"
+          REMOTE
