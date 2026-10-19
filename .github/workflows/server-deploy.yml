@@ -41,6 +41,6 @@ jobs:
           test -n "$USER"
           test -n "$PATH_ON_SERVER"
           ssh "$USER@$HOST" "mkdir -p '$PATH_ON_SERVER'"
-          rsync -az --delete             --exclude '.git/'             --exclude '.env'             --exclude 'node_modules/'             ./ "$USER@$HOST:$PATH_ON_SERVER/"
+          tar --exclude='./.git' --exclude='./.env' --exclude='./node_modules' -czf - . | ssh "$USER@$HOST" "mkdir -p '$PATH_ON_SERVER' && tar -xzf - -C '$PATH_ON_SERVER'"
           ssh "$USER@$HOST" "cd '$PATH_ON_SERVER' && docker compose pull && docker compose up -d --build && docker compose ps"
           ssh "$USER@$HOST" "curl -fsS http://127.0.0.1:8080/healthz"
