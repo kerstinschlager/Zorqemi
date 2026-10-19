@@ -70,8 +70,13 @@
       if(serverResult?.response?.ok&&(isCustomer?serverResult?.payload?.customer:serverResult?.payload?.user)){
         document.getElementById('authModal')?.classList.add('hidden');
         if(typeof window.refreshAuth==='function')await window.refreshAuth();
-        notify('Erfolgreich angemeldet');
-        if(!isCustomer&&typeof window.zqOpenDashboard==='function')await window.zqOpenDashboard();
+        if(!isCustomer&&serverResult.payload.user?.role==='admin'){
+          if(typeof window.zqOpenAdmin==='function')window.zqOpenAdmin();
+          notify('Als Administrator angemeldet.');
+        }else{
+          notify('Erfolgreich angemeldet');
+          if(!isCustomer&&typeof window.zqOpenDashboard==='function')await window.zqOpenDashboard();
+        }
         return false;
       }
       const db=window.zqDb;
