@@ -15,7 +15,7 @@ jobs:
           node --check server/api/src/server.js
           node --check server/api/src/auth.js
           node --check server/api/src/checkout-api.js
-          docker compose config >/dev/null
+          POSTGRES_PASSWORD=validation-only STRIPE_SECRET_KEY=sk_test_validation STRIPE_WEBHOOK_SECRET=whsec_validation INTERNAL_MAINTENANCE_TOKEN=validation-only docker compose config >/dev/null
 
       - name: Install SSH key
         env:
