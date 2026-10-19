@@ -51,7 +51,7 @@ jobs:
           test -f "$PATH_ON_SERVER/.env"
           cp "$PATH_ON_SERVER/.env" "$HOME/zorqemi-backups/${BACKUP_NAME%.dump}.env"
           chmod 600 "$HOME/zorqemi-backups/${BACKUP_NAME%.dump}.env"
-          find "$HOME/zorqemi-backups" -type f -name 'zorqemi-db-*.dump' -mtime +14 -delete
+          find "$HOME/zorqemi-backups" -type f \( -name 'zorqemi-db-*.dump' -o -name 'zorqemi-db-*.env' \) -mtime +14 -delete
           printf 'Verified database backup: %s\n' "$BACKUP_FILE"
           ls -lh "$BACKUP_FILE"
           REMOTE
