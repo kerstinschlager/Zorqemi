@@ -48,6 +48,9 @@ jobs:
           test -s "$BACKUP_FILE"
           docker compose exec -T zorqemi-db pg_restore --list < "$BACKUP_FILE" >/dev/null
           chmod 600 "$BACKUP_FILE"
+          test -f "$PATH_ON_SERVER/.env"
+          cp "$PATH_ON_SERVER/.env" "$HOME/zorqemi-backups/${BACKUP_NAME%.dump}.env"
+          chmod 600 "$HOME/zorqemi-backups/${BACKUP_NAME%.dump}.env"
           find "$HOME/zorqemi-backups" -type f -name 'zorqemi-db-*.dump' -mtime +14 -delete
           printf 'Verified database backup: %s\n' "$BACKUP_FILE"
           ls -lh "$BACKUP_FILE"
