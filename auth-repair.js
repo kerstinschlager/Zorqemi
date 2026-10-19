@@ -7,19 +7,41 @@
     const submit=document.getElementById('authSubmit');
     if(!email||password.length<10){notify('Bitte E-Mail und Passwort eingeben (mindestens 10 Zeichen).');return false;}
     if(submit){submit.disabled=true;submit.textContent='Anmeldung …';}
+    const isCustomer=window.__zqAuthContext==='customer';
     try{
-      const isCustomer=window.__zqAuthContext==='customer';
-      const endpoint=isCustomer?'/api/v1/customer/auth/login':'/api/v1/auth/login';
-      const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},credentials:'include',body:JSON.stringify({email,password})});
-      const payload=await response.json().catch(()=>({}));
-      if(!response.ok||!(isCustomer?payload?.customer:payload?.user))throw new Error(payload?.error==='invalid_credentials'?'E-Mail oder Passwort ist falsch.':'Anmeldung momentan nicht möglich.');
+      // Prefer the self-hosted API; fall back to Supabase auth so existing accounts still work.
+      let serverUser=null, customer=null, loginError=null;
+      try{
+        const endpoint=isCustomer?'/api/v1/customer/auth/login':'/api/v1/auth/login';
+        const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},credentials:'include',body:JSON.stringify({email,password})});
+        const payload=await response.json().catch(()=>({}));
+        if(response.ok&&(isCustomer?payload?.customer:payload?.user)){
+          customer=payload.customer||null;serverUser=payload.user||null;
+        }else{loginError=payload?.error||'Anmeldung über den Server nicht möglich';}
+      }catch(err){loginError=String(err?.message||'Server nicht erreichbar');}
+      if(!serverUser&&!customer){
+        if(!window.zqDb)throw new Error(loginError||'Anmeldung momentan nicht möglich.');
+        const {data,error}=await window.zqDb.auth.signInWithPassword({email,password});
+        if(error)throw error;
+        if(!data?.user)throw new Error('Keine Benutzer-Session erhalten.');
+        const {data:profile}=await window.zqDb.from('profiles').select('role').eq('id',data.user.id).maybeSingle();
+        document.getElementById('authModal')?.classList.add('hidden');
+        if(typeof window.refreshAuth==='function')await window.refreshAuth();
+        if(profile?.role==='admin'){window.zqOpenAdmin?.();notify('Als Administrator angemeldet.');}
+        else if(!isCustomer&&typeof window.zqOpenDashboard==='function'){await window.zqOpenDashboard();notify('Erfolgreich angemeldet');}
+        else notify('Erfolgreich angemeldet');
+        return false;
+      }
       document.getElementById('authModal')?.classList.add('hidden');
-      document.getElementById('authStatus').textContent=(isCustomer?payload.customer.email:payload.user.email)||email;
+      const status=document.getElementById('authStatus');
+      if(status)status.textContent=(isCustomer?customer?.email:serverUser?.email)||email;
       const btn=document.getElementById('authBtn');if(btn)btn.textContent='Abmelden';
       if(typeof window.refreshAuth==='function')await window.refreshAuth();
-      if(!isCustomer&&typeof window.zqOpenDashboard==='function')await window.zqOpenDashboard();
-      notify('Erfolgreich angemeldet');
-    }catch(err){notify('Anmeldung fehlgeschlagen: '+String(err?.message||'Unbekannter Fehler'));}finally{if(submit){submit.disabled=false;submit.textContent='Anmelden';}}
+      if(!isCustomer&&serverUser?.role==='admin'){window.zqOpenAdmin?.();notify('Als Administrator angemeldet.');}
+      else if(!isCustomer&&typeof window.zqOpenDashboard==='function'){await window.zqOpenDashboard();notify('Erfolgreich angemeldet');}
+      else notify('Erfolgreich angemeldet');
+    }catch(err){notify('Anmeldung fehlgeschlagen: '+String(err?.message||'Ungültige Anmeldedaten'));}
+    finally{if(submit){submit.disabled=false;submit.textContent='Anmelden';}}
     return false;
   };
   function openMerchantLogin(){
