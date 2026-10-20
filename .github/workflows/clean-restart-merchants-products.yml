@@ -1,0 +1,84 @@
+name: Clean restart - merchants and products
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/clean-restart-merchants-products.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  clean-restart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.ZQ_SERVER_SSH_KEY }}
+          HOST: ${{ secrets.ZQ_SERVER_HOST }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$HOST"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Backup, preflight and clean merchant catalog
+        env:
+          HOST: ${{ secrets.ZQ_SERVER_HOST }}
+          USER: ${{ secrets.ZQ_SERVER_USER }}
+          PATH_ON_SERVER: ${{ secrets.ZQ_SERVER_PATH }}
+        run: |
+          set -euo pipefail
+          BACKUP_NAME="zorqemi-pre-clean-$(date -u +%Y%m%d-%H%M%S).dump"
+          ssh "$USER@$HOST" "PATH_ON_SERVER='$PATH_ON_SERVER' BACKUP_NAME='$BACKUP_NAME' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$PATH_ON_SERVER"
+          mkdir -p "$HOME/zorqemi-backups"
+          chmod 700 "$HOME/zorqemi-backups"
+          BACKUP_FILE="$HOME/zorqemi-backups/$BACKUP_NAME"
+          docker compose exec -T zorqemi-db sh -lc 'pg_dump --format=custom --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > "$BACKUP_FILE"
+          test -s "$BACKUP_FILE"
+          docker compose exec -T zorqemi-db pg_restore --list < "$BACKUP_FILE" >/dev/null
+          chmod 600 "$BACKUP_FILE"
+          test -f "$PATH_ON_SERVER/.env"
+          cp "$PATH_ON_SERVER/.env" "$HOME/zorqemi-backups/${BACKUP_NAME%.dump}.env"
+          chmod 600 "$HOME/zorqemi-backups/${BACKUP_NAME%.dump}.env"
+          printf 'Verified pre-clean backup: %s\n' "$BACKUP_FILE"
+          ls -lh "$BACKUP_FILE"
+
+          # Fail closed if products are referenced by checkout/payment records.
+          # This protects transaction history and avoids deleting admin/order data.
+          docker compose exec -T zorqemi-db sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+          BEGIN;
+          DO $$
+          DECLARE
+            protected_refs bigint := 0;
+            n bigint;
+          BEGIN
+            SELECT count(*) INTO n FROM checkout_items;
+            protected_refs := protected_refs + n;
+            SELECT count(*) INTO n FROM checkout_stock_reservations;
+            protected_refs := protected_refs + n;
+            IF protected_refs > 0 THEN
+              RAISE EXCEPTION 'Cleanup stopped safely: % checkout item/reservation records reference catalog products. No data was deleted.', protected_refs;
+            END IF;
+          END $$;
+
+          -- Keep order and admin tables intact. Cart state is disposable during a catalog reset.
+          DELETE FROM cart_items;
+          DELETE FROM carts;
+          DELETE FROM product_variants;
+          DELETE FROM products;
+          DELETE FROM merchants;
+
+          COMMIT;
+          SQL
+          printf 'Post-clean counts (expected zero):\n'
+          docker compose exec -T zorqemi-db sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT '''merchants='''' || count(*) FROM merchants; SELECT '''products='''' || count(*) FROM products; SELECT '''orders='''' || count(*) FROM orders;"'
+          REMOTE
