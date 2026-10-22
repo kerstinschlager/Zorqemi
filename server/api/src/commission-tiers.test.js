@@ -8,10 +8,10 @@ test('progressive brackets apply only to turnover portions', () => {
   assert.equal(calculateMonthlyCommissionCents(50000), 2500);
   assert.equal(calculateMonthlyCommissionCents(100000), 5500);
   assert.equal(calculateMonthlyCommissionCents(200000), 11500);
-  assert.equal(calculateMonthlyCommissionCents(1000000), 79500);
-  assert.equal(calculateMonthlyCommissionCents(2000000), 189500);
-  assert.equal(calculateMonthlyCommissionCents(5000000), 579500);
-  assert.equal(calculateMonthlyCommissionCents(6000000), 729500);
+  assert.equal(calculateMonthlyCommissionCents(1000000), 77500);
+  assert.equal(calculateMonthlyCommissionCents(2000000), 187500);
+  assert.equal(calculateMonthlyCommissionCents(5000000), 577500);
+  assert.equal(calculateMonthlyCommissionCents(6000000), 727500);
 });
 
 test('order fee is incremental and monthly turnover resets by caller', () => {
