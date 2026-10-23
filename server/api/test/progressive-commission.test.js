@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { commissionForMonthlySales, incrementalCommission, commissionMonthKey } from '../src/progressive-commission.js';
+import { commissionForMonthlySales, incrementalCommission, commissionMonthKey, berlinCommissionMonth } from '../src/progressive-commission.js';
 
 test('3% below first threshold', () => {
   assert.equal(commissionForMonthlySales(10000), 300);
@@ -25,4 +25,11 @@ test('zero sales and validation', () => {
   assert.throws(() => incrementalCommission(0, 1.5), RangeError);
   assert.equal(commissionMonthKey(2026, 10), '2026-10');
   assert.throws(() => commissionMonthKey(2026, 13), RangeError);
+});
+
+test('month boundary follows Berlin time, not UTC', () => {
+  assert.equal(berlinCommissionMonth('2026-10-31T22:59:59Z'), '2026-10');
+  assert.equal(berlinCommissionMonth('2026-10-31T23:00:00Z'), '2026-11');
+  assert.equal(berlinCommissionMonth('2026-03-31T21:59:59Z'), '2026-03');
+  assert.equal(berlinCommissionMonth('2026-03-31T22:00:00Z'), '2026-04');
 });
