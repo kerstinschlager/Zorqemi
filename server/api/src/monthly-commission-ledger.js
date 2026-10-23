@@ -17,6 +17,14 @@ export async function accrueMonthlyCommissions(client, merchantId) {
     'SELECT order_id,commission_month,net_merchandise,commission_amount FROM merchant_order_commissions WHERE merchant_id=$1',
     [merchantId])).rows;
   const byOrder = new Set(existing.map(x=>String(x.order_id)));
+  // Backfilling orders before already-accrued ones would change tier allocations.
+  // Refuse such a replay until a reconciliation procedure is available.
+  const lastAccruedByMonth = new Map();
+  for (const order of orders) {
+    if (!byOrder.has(String(order.id))) continue;
+    const month = berlinCommissionMonth(order.created_at);
+    lastAccruedByMonth.set(month,order.created_at);
+  }
   const totals = new Map();
   for (const x of existing) {
     const old = totals.get(x.commission_month) || 0;
@@ -32,6 +40,7 @@ export async function accrueMonthlyCommissions(client, merchantId) {
     const amount = Number(order.subtotal);
     if (!Number.isFinite(amount) || amount < 0) throw new Error('invalid_order_subtotal');
     const month = berlinCommissionMonth(order.created_at);
+    if (lastAccruedByMonth.has(month) && new Date(order.created_at) < new Date(lastAccruedByMonth.get(month))) throw new Error('commission_backfill_requires_reconciliation');
     const previous = totals.get(month) || 0;
     const next = previous + asCents(amount);
     const fee = commissionForMonthlySales(next)-commissionForMonthlySales(previous);
