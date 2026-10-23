@@ -13,6 +13,8 @@ export async function accrueMonthlyCommissions(client, merchantId) {
       LEFT JOIN shop_settings s ON s.merchant_id=o.merchant_id
      WHERE o.merchant_id=$1 AND o.status IN ('paid','processing','shipped','completed')
      ORDER BY o.created_at,o.id FOR UPDATE OF o`, [merchantId])).rows;
+  const start = process.env.ZQ_PROGRESSIVE_COMMISSION_START;
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(start || '')) throw new Error('progressive_commission_start_required');
   const existing = (await client.query(
     'SELECT order_id,commission_month,net_merchandise,commission_amount FROM merchant_order_commissions WHERE merchant_id=$1',
     [merchantId])).rows;
@@ -33,6 +35,9 @@ export async function accrueMonthlyCommissions(client, merchantId) {
   let created = 0;
   for (const order of orders) {
     if (byOrder.has(String(order.id))) continue;
+    if (new Date(order.created_at) < new Date(start+'T00:00:00Z')) continue;
+    const previouslySettled = await client.query('SELECT 1 FROM merchant_payout_orders WHERE order_id=$1 LIMIT 1',[order.id]);
+    if (previouslySettled.rowCount) continue;
     if (String(order.currency).toUpperCase() !== 'EUR') throw new Error('commission_requires_eur');
     // Checkout currently computes VAT in addition to subtotal.
     // If tax treatment is unknown, stop rather than silently miscalculate.
