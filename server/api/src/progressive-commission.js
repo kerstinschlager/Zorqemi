@@ -46,3 +46,18 @@ export function commissionMonthKey(year, month) {
   if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) throw new RangeError('invalid year/month');
   return String(year).padStart(4, '0') + '-' + String(month).padStart(2, '0');
 }
+
+const berlinMonthFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit'
+});
+
+// Calendar-month reset is based on the Europe/Berlin local date,
+// including the daylight-saving-time transitions.
+export function berlinCommissionMonth(timestamp) {
+  const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) throw new RangeError('invalid timestamp');
+  const parts = berlinMonthFormatter.formatToParts(date);
+  const year = Number(parts.find(p => p.type === 'year')?.value);
+  const month = Number(parts.find(p => p.type === 'month')?.value);
+  return commissionMonthKey(year, month);
+}
