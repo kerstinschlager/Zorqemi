@@ -22,6 +22,8 @@ export function previewMonthlyMerchantCommission(orders) {
     if (currency !== 'EUR') throw new Error('commission_preview_eur_only');
     const month = berlinCommissionMonth(order.created_at);
     const key = String(order.merchant_id) + ':' + month;
+    if (order.net_merchandise === undefined || order.net_merchandise === null || order.net_merchandise === '') throw new Error('net_merchandise_required');
+    if (!Number.isFinite(Number(order.net_merchandise)) || Number(order.net_merchandise) < 0) throw new Error('invalid_net_merchandise');
     const merchandise = cents(order.net_merchandise);
     if (!Number.isSafeInteger(merchandise) || merchandise < 0) throw new Error('invalid_net_merchandise');
     const previous = months.get(key) || 0;
