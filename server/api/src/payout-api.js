@@ -1,3 +1,4 @@
+import { accrueMonthlyCommissions } from './monthly-commission-ledger.js';
 function uuid(value) { return /^[0-9a-f-]{36}$/i.test(String(value || '')); }
 
 export async function getMerchantPayouts(pool, merchantId, userId, limit=100) {
@@ -23,6 +24,35 @@ export async function createMerchantPayout(pool, merchantId) {
     if(!orders.length){await client.query('ROLLBACK');return null;}
     const currency=orders[0].currency||'EUR';
     if(orders.some(o=>(o.currency||'EUR')!==currency)){const e=new Error('mixed_currency_payout');e.status=409;throw e;}
+    // Progressive payouts are explicitly gated until reconciliation and rollout.
+    // Existing flat-rate payouts and historical ledger entries remain untouched.
+    const progressive = process.env.ZQ_PROGRESSIVE_COMMISSION_ENABLED === 'true';
+    if (progressive) {
+      const cutoff = process.env.ZQ_PROGRESSIVE_COMMISSION_START;
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(cutoff || '')) throw new Error('progressive_commission_start_required');
+      const historic = (await client.query(
+        'SELECT count(*)::int AS n FROM orders WHERE merchant_id=$1 AND created_at < $2::date AND status IN (\'paid\',\'processing\',\'shipped\',\'completed\') AND NOT EXISTS (SELECT 1 FROM merchant_payout_orders po WHERE po.order_id=orders.id)',
+        [merchantId,cutoff])).rows[0].n;
+      if (historic > 0) throw new Error('historical_orders_require_legacy_settlement');
+      await accrueMonthlyCommissions(client,merchantId);
+      const fees = (await client.query(
+        'SELECT order_id,commission_amount FROM merchant_order_commissions WHERE order_id=ANY($1::uuid[])',
+        [orders.map(o=>o.id)])).rows;
+      if (fees.length !== orders.length) throw new Error('commission_ledger_incomplete');
+      const feeByOrder = new Map(fees.map(f=>[String(f.order_id),Number(f.commission_amount)]));
+      const grossCents = orders.reduce((s,o)=>s+Math.round(Number(o.total)*100),0);
+      const feeCents = orders.reduce((s,o)=>s+Math.round(feeByOrder.get(String(o.id))*100),0);
+      if (feeCents > grossCents) throw new Error('commission_exceeds_payout');
+      const payout = (await client.query(`INSERT INTO merchant_payouts
+        (merchant_id,currency,gross_amount,commission_rate,commission_amount,net_amount,status,payout_method,payout_email,commission_model)
+        VALUES ($1,$2,$3,0,$4,$5,'pending',$6,$7,'progressive_monthly') RETURNING *`,
+        [merchantId,currency,(grossCents/100).toFixed(2),(feeCents/100).toFixed(2),((grossCents-feeCents)/100).toFixed(2),merchant.payout_method||null,merchant.payout_email||null])).rows[0];
+      for (const o of orders) await client.query(
+        'INSERT INTO merchant_payout_orders(payout_id,order_id,order_total,commission_amount) VALUES($1,$2,$3,$4)',
+        [payout.id,o.id,o.total,feeByOrder.get(String(o.id))]);
+      await client.query('COMMIT');
+      return {...payout,order_count:orders.length};
+    }
     const gross=orders.reduce((s,o)=>s+Number(o.total||0),0);
     const commission=Number((gross*rate/100).toFixed(2));
     const net=Number((gross-commission).toFixed(2));
